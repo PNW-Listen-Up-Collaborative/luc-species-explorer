@@ -204,8 +204,8 @@ def main() -> None:
         low_memory=False,
         usecols=[
             "rec", "preserve", "plot", "treatment_group", "treatment_type",
-            "latitude", "longitude", "datetime", "season", "year", "year_season",
-            "season_period_year", "species_code",
+            "latitude", "longitude", "elevation", "datetime", "season", "year",
+            "year_season", "season_period_year", "species_code",
         ],
     )
 
@@ -298,8 +298,10 @@ def main() -> None:
     # ------------------------------------------------------------- plot lookup
     plots = (
         summary.drop_duplicates("plot")[
+            # Elevation is carried so exports can mirror the source table's
+            # site block rather than a subset of it.
             ["plot", "preserve", "treatment_group", "treatment_type",
-             "latitude", "longitude"]
+             "latitude", "longitude", "elevation"]
         ]
         .sort_values(["preserve", "plot"])
         .reset_index(drop=True)

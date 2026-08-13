@@ -1119,19 +1119,27 @@ def occupancy_panels(
                 "split_by_period": False,
             }
 
+        # Per-plot grids only once the selection has been narrowed. On the
+        # default view — every preserve, every plot — they would be 40 grids
+        # nobody asked for, below a combined grid that is the point of that
+        # view. Choosing preserves or plots is the signal that someone wants
+        # to look plot by plot.
+        #
+        # A single plot is excluded at the other end: the combined grid already
+        # is that plot, so a second copy would say nothing new.
+        narrowed = 1 < len(sel_plots) < len(data.all_plots)
+
         grid, sampling, buckets = occupancy_grid(data, f, rows)
         # Only headed when per-plot grids follow it; on its own it needs no
         # label, because the panel title above already names the selection.
-        combined_label = ("All selected plots combined"
-                          if len(sel_plots) > 1 else None)
-        panels = [_panel(grid, sampling, buckets, combined_label, sel_plots)]
+        panels = [_panel(grid, sampling, buckets,
+                         "All selected plots combined" if narrowed else None,
+                         sel_plots)]
 
-        # Then one grid per plot. The combined grid unions dates across plots,
-        # so it saturates — a species claims a day if any plot heard it, and
-        # most cells sit at 100%. The per-plot grids are where the variation
-        # actually lives. Skipped for a single plot, where the combined grid
-        # already is that plot.
-        if len(sel_plots) > 1:
+        # The combined grid unions dates across plots, so it saturates — a
+        # species claims a day if any plot heard it, and most cells sit at
+        # 100%. The per-plot grids are where the variation actually lives.
+        if narrowed:
             preserve_of = dict(zip(data.plots["plot"], data.plots["preserve"]))
             codes = [c for c in data.species_codes if c in set(f.species)]
             for plot in sorted(sel_plots):
@@ -1491,66 +1499,195 @@ def region_species_nodes(
 
 # --------------------------------------------------------------------- export
 
+# Exports mirror Combined_BirdNET_Results.csv: same column names, same order —
+# site block, then time block, then species block, then the measures. The point
+# is that a downloaded file drops into whatever already reads the source table,
+# and that a reader does not have to learn a second vocabulary.
+#
+# Two columns from the source are deliberately absent. `rec`, `datetime`,
+# `birdnet_start_s` and the like are properties of one 3-second detection,
+# whereas these rows are seasonal aggregates over many. And `confidence` is a
+# per-detection score; the threshold that produced the aggregate is carried as
+# `confidence_threshold` instead.
+SITE_FIELDS = ["preserve", "plot", "treatment_group", "treatment_type",
+               "latitude", "longitude", "elevation"]
+TIME_FIELDS = ["season_period_year", "season", "year_season"]
+SPECIES_FIELDS = ["species", "species_code", "forage_guilds"]
+SCOPE_FIELDS = ["n_plots", "preserves_included", "plots_included"]
+LOCATION_FIELDS = SITE_FIELDS + SCOPE_FIELDS
+
+
+def location_columns(data: Dataset, plots: list[str],
+                     bucket: str | None = None) -> dict:
+    """
+    The site block for a row, in the source table's column names.
+
+    Fields that are only meaningful for one site are filled only for one site:
+    a mean latitude across plots is a place no recorder ever stood, and a
+    pooled row has no single treatment. `plots_included` always carries the
+    full membership, so nothing is lost to those blanks.
+    """
+    plots = sorted(plots)
+    tbl = data.plots.set_index("plot")
+    preserves = sorted({
+        p for p in data.plots.loc[data.plots["plot"].isin(plots), "preserve"]
+    })
+    one = plots[0] if len(plots) == 1 and plots[0] in tbl.index else ""
+
+    group = ptype = ""
+    if one and bucket:
+        # Treatment is date-aware, so it is read for this plot in this season
+        # rather than from the plot's static label.
+        d = data.dates
+        sub = d[(d["plot"] == one) & (d["bucket"] == bucket)]
+        if not sub.empty:
+            gs = sorted(set(sub["period"].dropna()))
+            ts = sorted(set(sub["period_type"].dropna()))
+            group = gs[0] if len(gs) == 1 else "|".join(gs)
+            ptype = ts[0] if len(ts) == 1 else "|".join(ts)
+
+    return {
+        "preserve": preserves[0] if len(preserves) == 1 else "",
+        "plot": one,
+        "treatment_group": group,
+        "treatment_type": ptype,
+        "latitude": float(tbl.loc[one, "latitude"]) if one else "",
+        "longitude": float(tbl.loc[one, "longitude"]) if one else "",
+        "elevation": (float(tbl.loc[one, "elevation"])
+                      if one and "elevation" in tbl.columns else ""),
+        "n_plots": len(plots),
+        "preserves_included": "|".join(preserves),
+        "plots_included": "|".join(plots),
+    }
+
+
+def time_columns(data: Dataset, bucket: str) -> dict:
+    """The time block for a bucket, named as the source table names it."""
+    for b in data.meta["buckets"]:
+        if b["bucket"] == bucket:
+            return {"season_period_year": b["season_period_year"],
+                    "season": b["season"], "year_season": b["year_season"]}
+    return {"season_period_year": "", "season": "", "year_season": bucket}
+
+
+def species_columns(data: Dataset, code: str) -> dict:
+    """The species block: scientific name, code and guild, as in the source."""
+    for s in data.species:
+        if s["code"] == code:
+            return {"species": s.get("scientific", ""), "species_code": code,
+                    "forage_guilds": s.get("guild", "")}
+    return {"species": "", "species_code": code, "forage_guilds": ""}
+
+
 def export_csv(data: Dataset, f: Filters, rows: pd.DataFrame) -> bytes:
     """Export exactly what the active view shows, matching the design's shapes."""
     buf = io.StringIO()
     view = f.graph_type
+    where = location_columns(data, eligible_plots(data, f))
 
     # Exports carry the unit so a downloaded file is never ambiguous about
     # whether its numbers are raw windows, presence, or a per-day rate.
     unit = f"{f.metric}_per_day" if f.normalize == "per_day" else f.metric
 
+    head = SITE_FIELDS + TIME_FIELDS + SPECIES_FIELDS + SCOPE_FIELDS
+
     if view == "trends":
+        # No species dimension: the series is a total over the selection, so
+        # the species block is left empty rather than invented.
         series, buckets = build_series(data, f, rows, "detections")
         recs = [
-            {"year_season": b, "group": s["label"], "value": v, "unit": unit}
+            {**where, **time_columns(data, b),
+             "species": "", "species_code": "", "forage_guilds": "",
+             "group": s["label"], "detections": v, "unit": unit,
+             "confidence_threshold": f.confidence}
             for s in series
             for b, v in zip(buckets, s["values"])
         ]
-        pd.DataFrame(recs, columns=["year_season", "group", "value", "unit"]).to_csv(
-            buf, index=False
-        )
+        pd.DataFrame(recs, columns=head + ["group", "detections", "unit",
+                                           "confidence_threshold"]
+                     ).to_csv(buf, index=False)
     elif view == "species":
-        bars = species_bars(data, f, rows).assign(unit=unit)
-        bars[["species_code", "name", "detections", "unit"]].to_csv(buf, index=False)
+        # Ranked over the whole selected range, so the time block spans it.
+        span = {"season_period_year": "", "season": "|".join(f.seasons),
+                "year_season": f"{f.year_from}-{f.year_to}"}
+        recs = [
+            {**where, **span, **species_columns(data, r.species_code),
+             "detections": r.detections, "unit": unit,
+             "confidence_threshold": f.confidence}
+            for r in species_bars(data, f, rows).itertuples()
+        ]
+        pd.DataFrame(recs, columns=head + ["detections", "unit",
+                                           "confidence_threshold"]
+                     ).to_csv(buf, index=False)
     elif view == "occupancy":
-        eff_col = ("rec_hours_sampled" if f.occ_granularity == "hourly"
-                   else "days_sampled")
+        rate = is_rate_mode(f)
+        eff_name = ("sampling_hours" if f.occ_granularity == "hourly"
+                    else "sampling_days")
         recs = []
         for panel in occupancy_panels(data, f, rows):
             grid, sampling = panel["grid"], panel["sampling"]
+            panel_plots = panel.get("plot_names") or eligible_plots(data, f)
             for code in grid.index:
+                sp = species_columns(data, code)
                 for ci, col in enumerate(panel["columns"]):
                     v = grid.loc[code, ci]
+                    eff = int(sampling.get(ci, 0))
+                    blank = pd.isna(v)
                     recs.append({
+                        # Each grid names its own site, so a per-plot panel
+                        # exports that plot's coordinates and its treatment in
+                        # that season, while a pooled one lists its members.
+                        **location_columns(data, panel_plots, col["bucket"]),
+                        **time_columns(data, col["bucket"]),
+                        **sp,
                         "group": panel["label"] or "All selected",
                         "period": col["period"] or "",
-                        "species_code": code,
-                        "year_season": col["bucket"],
                         # Empty rather than 0 so "not surveyed" survives export.
-                        "occupancy_pct": "" if pd.isna(v) else v,
-                        "effort_sampled": int(sampling.get(ci, 0)),
+                        "detections": ("" if blank or not rate else int(v)),
+                        "days_detected": ("" if blank or rate
+                                          else int(round(v * eff / 100))),
+                        eff_name: eff,
+                        "occupancy_pct": "" if blank or rate else v,
+                        "measure": "detections" if rate else "occupancy_pct",
+                        "confidence_threshold": f.confidence,
                     })
-        df = pd.DataFrame(recs, columns=["group", "period", "species_code",
-                                         "year_season", "occupancy_pct",
-                                         "effort_sampled"])
-        df["granularity"] = f.occ_granularity
-        df["effort_unit"] = eff_col
-        df.to_csv(buf, index=False)
+        pd.DataFrame(recs, columns=head + [
+            "group", "period", "detections", "days_detected", eff_name,
+            "occupancy_pct", "measure", "confidence_threshold"]
+        ).to_csv(buf, index=False)
     else:
         # Matches the map: one row per bubble, carrying the occupancy that sized
         # it and the effort behind that occupancy.
         nodes = region_species_nodes(data, f, rows)
-        # The exported coordinate is the recorder's real position, not the
-        # fanned-out drawing position, which exists only to unstack the map.
-        nodes = nodes.assign(
-            granularity=f.occ_granularity,
-            latitude=nodes["plot_latitude"],
-            longitude=nodes["plot_longitude"],
-        )
-        nodes[["preserve", "plot", "latitude", "longitude", "species_code",
-               "name", "occupancy_pct", "effort_sampled",
-               "granularity"]].to_csv(buf, index=False)
+        tbl = data.plots.set_index("plot")
+        span = {"season_period_year": "",
+                "season": f.region_bucket or "|".join(f.seasons),
+                "year_season": f.region_bucket or f"{f.year_from}-{f.year_to}"}
+        eff_name = ("sampling_hours" if f.occ_granularity == "hourly"
+                    else "sampling_days")
+        recs = []
+        for r in nodes.itertuples():
+            recs.append({
+                # One row per plot already, so the site block is fully
+                # determined. Coordinates are the recorder's real position,
+                # not the fanned-out drawing position used on the map.
+                "preserve": r.preserve, "plot": r.plot,
+                "treatment_group": tbl.loc[r.plot, "treatment_group"],
+                "treatment_type": tbl.loc[r.plot, "treatment_type"],
+                "latitude": r.plot_latitude, "longitude": r.plot_longitude,
+                "elevation": (float(tbl.loc[r.plot, "elevation"])
+                              if "elevation" in tbl.columns else ""),
+                **span,
+                **species_columns(data, r.species_code),
+                "n_plots": 1, "preserves_included": r.preserve,
+                "plots_included": r.plot,
+                "occupancy_pct": r.occupancy_pct,
+                eff_name: r.effort_sampled,
+                "confidence_threshold": f.confidence,
+            })
+        pd.DataFrame(recs, columns=head + [
+            "occupancy_pct", eff_name, "confidence_threshold"]
+        ).to_csv(buf, index=False)
 
     return buf.getvalue().encode("utf-8")
 
@@ -1787,7 +1924,58 @@ def methodology(data: Dataset) -> list[tuple[str, list[tuple[str, str]]]]:
     ]
 
 
+def export_filename(data: Dataset, f: Filters) -> str:
+    """
+    A filename that says what the export actually contains.
+
+    Every download used to be 'birdnet_occupancy_export.csv', so a folder of
+    them was indistinguishable and the browser appended (1), (2), (3). This
+    names the view, the scope and the threshold.
+    """
+    parts = ["birdnet", f.graph_type]
+    if f.graph_type == "occupancy":
+        parts.append(f.occ_granularity)
+
+    plots = eligible_plots(data, f)
+    preserves = sorted({
+        p for p in data.plots.loc[data.plots["plot"].isin(plots), "preserve"]
+    })
+    if len(plots) == 1:
+        parts.append(plots[0])
+    elif len(plots) == len(data.all_plots):
+        parts.append("all-plots")
+    elif len(preserves) == 1:
+        parts.append(preserves[0])
+    else:
+        parts.append(f"{len(plots)}plots")
+
+    # Time scope, but only when narrowed — otherwise every name carries the
+    # full year range and the useful part gets lost in it.
+    if f.year_from == f.year_to:
+        parts.append(str(f.year_from))
+    elif (f.year_from, f.year_to) != (min(data.years), max(data.years)):
+        parts.append(f"{f.year_from}-{f.year_to}")
+    if len(f.seasons) < len(data.seasons):
+        parts.append("-".join(s[:2] for s in f.seasons))
+
+    if len(f.species) == 1:
+        parts.append(f.species[0])
+    parts.append(f"conf{f.confidence}")
+
+    safe = "_".join(str(p).replace(" ", "-").replace("/", "-") for p in parts)
+    return f"{safe}.csv"
+
+
 def view_state_json(f: Filters) -> str:
+    """
+    The current view as JSON.
+
+    Nothing in the app calls this: it backed a 'Copy view link' button that
+    printed the state but could not restore it. Kept because it is the natural
+    starting point for a real shareable view — serialise this into
+    st.query_params on change, parse it back on load — and because it is the
+    one place that enumerates every field a saved view would need.
+    """
     return json.dumps(
         {
             "graphType": f.graph_type,
@@ -1804,6 +1992,8 @@ def view_state_json(f: Filters) -> str:
             "occGranularity": f.occ_granularity,
             "metric": f.metric,
             "normalize": f.normalize,
+            "regionBucket": f.region_bucket,
+            "regionSolar": list(f.region_solar),
         },
         indent=2,
     )

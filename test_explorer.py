@@ -10,6 +10,7 @@ CSVs, so this checks the cache + core logic rather than restating it.
 from __future__ import annotations
 
 import datetime as dt
+import io
 import math
 import sys
 from dataclasses import replace
@@ -393,6 +394,143 @@ print(f"        control+pretreat+posttreat {_parts:.0f} vs all {_whole:.0f} "
       f"— the excess is dates when plots in different periods both recorded")
 
 # Exports must record the unit.
+print("\n--- the export follows the filters ---")
+# The download button used to be built before the controls were read, so it
+# served the previous interaction's data. The export itself must vary with
+# every filter that changes what is on screen.
+import hashlib as _hl
+_ex_cases = {
+    "default":    DEFAULTS,
+    "conf0.9":    replace(DEFAULTS, confidence=0.9),
+    "grovers":    core.cascade_preserves(DATA, DEFAULTS, ["Grovers"]),
+    "one plot":   replace(DEFAULTS, preserves=("Grovers",), plots=("GCP-A",)),
+    "one species": replace(DEFAULTS, species=("WIWA",)),
+    "winter":     replace(DEFAULTS, seasons=("Winter",)),
+    "hourly":     replace(DEFAULTS, occ_granularity="hourly"),
+    "count":      replace(DEFAULTS, occ_granularity="count"),
+    "trends":     replace(DEFAULTS, graph_type="trends"),
+    "species":    replace(DEFAULTS, graph_type="species"),
+    "map":        replace(DEFAULTS, graph_type="region"),
+}
+_digests = {k: _hl.md5(core.export_csv(DATA, v, core.apply_filters(DATA, v))
+                       ).hexdigest() for k, v in _ex_cases.items()}
+check("every filter combination exports different bytes",
+      len(set(_digests.values())), len(_ex_cases))
+
+# And the filename must say which of them it is, or a folder of downloads is
+# indistinguishable and the browser just appends (1), (2), (3).
+_names = {k: core.export_filename(DATA, v) for k, v in _ex_cases.items()}
+check("  each export gets its own filename",
+      len(set(_names.values())), len(_ex_cases))
+check("  naming the view", "occupancy" in _names["default"]
+      and "trends" in _names["trends"] and "region" in _names["map"], True)
+check("  the scope", "GCP-A" in _names["one plot"]
+      and "Grovers" in _names["grovers"]
+      and "all-plots" in _names["default"], True)
+check("  the threshold", "conf0.9" in _names["conf0.9"], True)
+check("  and the occupancy mode",
+      "daily" in _names["default"] and "hourly" in _names["hourly"]
+      and "count" in _names["count"], True)
+check("  every filename is safe for a filesystem",
+      all(not set(n) & set('<>:"/\\|?* ') for n in _names.values()), True)
+
+print("\n--- every export says where the data came from ---")
+import io as _io
+_LOC = ["preserve", "plot", "latitude", "longitude", "n_plots",
+        "preserves_included", "plots_included"]
+for _v in ("occupancy", "trends", "species", "region"):
+    _fv = replace(DEFAULTS, graph_type=_v)
+    _hdr = core.export_csv(DATA, _fv,
+                           core.apply_filters(DATA, _fv)).decode().splitlines()[0]
+    check(f"  {_v} export carries location columns",
+          all(c in _hdr.split(",") for c in _LOC), True)
+
+# Per-plot grids must name their own plot and coordinates; a pooled grid must
+# not invent a position, because the mean of several sites is nowhere real.
+_f_gr = core.cascade_preserves(DATA, DEFAULTS, ["Grovers"])
+_df_gr = pd.read_csv(_io.BytesIO(
+    core.export_csv(DATA, _f_gr, core.apply_filters(DATA, _f_gr))))
+check("per-plot rows carry their plot's coordinates",
+      bool(_df_gr.loc[_df_gr["n_plots"] == 1, "latitude"].notna().all()), True)
+check("  pooled rows carry none",
+      bool(_df_gr.loc[_df_gr["n_plots"] > 1, "latitude"].isna().all()), True)
+check("  and every row names its preserve",
+      bool((_df_gr["preserve"] == "Grovers").all()), True)
+
+_coords = DATA.plots.set_index("plot")
+_one = _df_gr[_df_gr["plot"] == "GCP-A"].iloc[0]
+check("  coordinates match the plots table",
+      (round(float(_one["latitude"]), 5), round(float(_one["longitude"]), 5)),
+      (round(float(_coords.loc["GCP-A", "latitude"]), 5),
+       round(float(_coords.loc["GCP-A", "longitude"]), 5)))
+check("  plots_included lists the pooled grid's members",
+      set(_df_gr.loc[_df_gr["n_plots"] > 1, "plots_included"].iloc[0].split("|")),
+      set(_f_gr.plots))
+
+# A multi-preserve selection cannot claim one preserve.
+_f_two = core.cascade_preserves(DATA, DEFAULTS, ["Grovers", "Burley"])
+_df_two = pd.read_csv(_io.BytesIO(core.export_csv(
+    DATA, replace(_f_two, graph_type="trends"),
+    core.apply_filters(DATA, replace(_f_two, graph_type="trends")))))
+check("a two-preserve export leaves 'preserve' blank",
+      bool(_df_two["preserve"].isna().all()), True)
+check("  but lists both in preserves_included",
+      sorted(_df_two["preserves_included"].iloc[0].split("|")),
+      ["Burley", "Grovers"])
+
+print("\n--- exports mirror Combined_BirdNET_Results.csv ---")
+# Same column names in the same order, so a download drops into whatever
+# already reads the source table.
+_src_cols = list(pd.read_csv(COMBINED, nrows=1, low_memory=False).columns)
+_expected_shared = ["preserve", "plot", "treatment_group", "treatment_type",
+                    "latitude", "longitude", "elevation",
+                    "season_period_year", "season", "year_season",
+                    "species", "species_code", "forage_guilds"]
+check("every one of those columns exists in the source",
+      [c for c in _expected_shared if c in _src_cols], _expected_shared)
+for _v in ("occupancy", "trends", "species", "region"):
+    _fv = replace(DEFAULTS, graph_type=_v)
+    _cols = core.export_csv(
+        DATA, _fv, core.apply_filters(DATA, _fv)).decode().splitlines()[0].split(",")
+    check(f"  {_v} leads with the source's own columns",
+          _cols[:len(_expected_shared)], _expected_shared)
+    check(f"    in the source's own order",
+          [c for c in _cols if c in _src_cols],
+          [c for c in _src_cols if c in _cols])
+
+# Site fields belong to one site, so they are filled only for one site.
+_f_gr2 = core.cascade_preserves(DATA, DEFAULTS, ["Grovers"])
+_dgr = pd.read_csv(io.BytesIO(
+    core.export_csv(DATA, _f_gr2, core.apply_filters(DATA, _f_gr2))))
+_per = _dgr[_dgr["n_plots"] == 1]
+_pool = _dgr[_dgr["n_plots"] > 1]
+check("per-plot rows carry elevation and coordinates",
+      bool(_per[["latitude", "longitude", "elevation"]].notna().all().all()), True)
+check("  pooled rows carry none of them",
+      bool(_pool[["latitude", "longitude", "elevation"]].isna().all().all()), True)
+check("  elevation matches the plots table",
+      float(_per[_per["plot"] == "GCP-A"]["elevation"].iloc[0]),
+      float(DATA.plots.set_index("plot").loc["GCP-A", "elevation"]))
+
+# Treatment is date-aware, so an exported row shows the treatment in force that
+# season, not the plot's static label.
+_ga = _per[(_per["plot"] == "GCP-A")]
+check("treatment_group follows the season, not a static label",
+      (_ga[_ga["year_season"] == "2022 Summer"]["treatment_group"].iloc[0],
+       _ga[_ga["year_season"] == "2023 Spring"]["treatment_group"].iloc[0]),
+      ("pretreat", "posttreat"))
+check("  and treatment_type with it",
+      _ga[_ga["year_season"] == "2023 Spring"]["treatment_type"].iloc[0],
+      "patch cut, thinning")
+
+# The species block uses the source's scientific name and guild.
+_bewr = _dgr[_dgr["species_code"] == "BEWR"].iloc[0]
+_src_bewr = combined[combined["species_code"] == "BEWR"].iloc[0]
+check("species column carries the scientific name",
+      _bewr["species"], _src_bewr["species"])
+check("  and forage_guilds matches the source",
+      _bewr["forage_guilds"], _src_bewr["forage_guilds"])
+
 print("\n--- export unit labelling ---")
 for m in ("presence", "raw"):
     for n in ("total", "per_day"):
@@ -634,11 +772,21 @@ print("\n--- occupancy compare-by panels ---")
 # dates across plots so it saturates; the per-plot grids are where the variation
 # is. A single-plot selection gets just the one grid, since the pooled grid
 # already is that plot.
+# The default view is every plot, where 40 extra grids would be noise; the
+# per-plot breakdown appears once someone narrows to specific preserves or
+# plots, which is the signal that they want to look plot by plot.
 f_none = replace(DEFAULTS, compare_by="none")
-_pn = core.occupancy_panels(DATA, f_none, core.apply_filters(DATA, f_none))
-check("compare=none yields the pooled grid plus one per plot",
-      len(_pn), 1 + len(DEFAULTS.plots))
-check("  the first is the pooled one", _pn[0]["n_plots"], len(DEFAULTS.plots))
+_pn_all = core.occupancy_panels(DATA, f_none, core.apply_filters(DATA, f_none))
+check("all plots selected gives just the combined grid",
+      (len(_pn_all), _pn_all[0]["label"]), (1, None))
+
+f_gr = replace(core.cascade_preserves(DATA, DEFAULTS, ["Grovers"]),
+               compare_by="none")
+_pn = core.occupancy_panels(DATA, f_gr, core.apply_filters(DATA, f_gr))
+_gr_plots = list(f_gr.plots)
+check("narrowing to a preserve adds one grid per plot",
+      len(_pn), 1 + len(_gr_plots))
+check("  the first is the pooled one", _pn[0]["n_plots"], len(_gr_plots))
 check("  and it is labelled as combined",
       _pn[0]["label"], "All selected plots combined")
 check("  the rest are one plot each",
@@ -648,7 +796,7 @@ check("  each titled preserve / plot",
       f"{DATA.plots.set_index('plot').loc[_pn[1]['key'], 'preserve']}"
       f" / {_pn[1]['key']}")
 check("  covering every selected plot exactly once",
-      sorted(p["key"] for p in _pn[1:]), sorted(DEFAULTS.plots))
+      sorted(p["key"] for p in _pn[1:]), sorted(_gr_plots))
 
 _f_one = replace(DEFAULTS, compare_by="none", preserves=("Grovers",),
                  plots=("GCP-A",))
@@ -1286,13 +1434,19 @@ check("mid-ramp differs from both ends",
 print("\n--- occupancy export keeps NA and groups ---")
 f_ex = replace(f_ga, graph_type="occupancy")
 txt = core.export_csv(DATA, f_ex, core.apply_filters(DATA, f_ex)).decode()
-check("export header includes group, period and effort",
+check("export header mirrors the source table, then the measures",
       txt.splitlines()[0],
-      "group,period,species_code,year_season,occupancy_pct,effort_sampled,"
-      "granularity,effort_unit")
-na_rows = [ln for ln in txt.splitlines()[1:] if ln.split(",")[4] == ""]
+      "preserve,plot,treatment_group,treatment_type,latitude,longitude,"
+      "elevation,season_period_year,season,year_season,species,species_code,"
+      "forage_guilds,n_plots,preserves_included,plots_included,group,period,"
+      "detections,days_detected,sampling_days,occupancy_pct,measure,"
+      "confidence_threshold")
+# Read by column name rather than position: the location columns shifted the
+# occupancy field along, and an index-based check silently passed nothing.
+_ex_df = pd.read_csv(io.BytesIO(txt.encode()))
 check("unsurveyed cells export as empty, not 0",
-      len(na_rows), len(zero_effort) * len(g_ga.index))
+      int(_ex_df["occupancy_pct"].isna().sum()),
+      len(zero_effort) * len(g_ga.index))
 
 f_exg = replace(DEFAULTS, graph_type="occupancy", compare_by="treatment_group")
 txt2 = core.export_csv(DATA, f_exg, core.apply_filters(DATA, f_exg)).decode()

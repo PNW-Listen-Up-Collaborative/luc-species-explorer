@@ -58,8 +58,10 @@ span[class*="material-symbols"] {{
   border-radius: 0 !important;
 }}
 
-/* 4rem of top padding was clearing a toolbar that is hidden in this build. */
-.block-container {{ padding-top: 2rem; padding-bottom: 3rem; max-width: 1500px; }}
+/* Must clear Streamlit Cloud's fixed header (Share / star / edit / GitHub),
+   which is about 3rem tall and overlays the page. Locally that bar is hidden,
+   so 2rem looked fine here and cropped the title once deployed. */
+.block-container {{ padding-top: 3.5rem; padding-bottom: 3rem; max-width: 1500px; }}
 
 /* ------------------------------------------------------------------ header */
 .luc-title {{
@@ -109,6 +111,13 @@ span[class*="material-symbols"] {{
 .luc-mapsub {{
   font-size: 13px; font-weight: 800; color: var(--ink);
   margin: var(--space-3) 0 var(--space-1);
+}}
+
+/* Footnote above the methodology expander. Block display and real margins on
+   both sides, so the expander below cannot ride up over it. */
+.luc-footnote {{
+  display: block; font-size: 11.5px; line-height: 1.6; color: var(--muted);
+  margin: var(--space-6) 0 var(--space-4);
 }}
 
 /* ------------------------------------------------------ methodology block */

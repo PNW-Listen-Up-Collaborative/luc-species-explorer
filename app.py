@@ -120,7 +120,6 @@ def _init_state() -> None:
         region_bucket=d.region_bucket,
         region_hours=list(d.region_hours),
         region_solar=list(d.region_solar),
-        copied=False,
     )
 
 
@@ -347,35 +346,19 @@ f = current_filters()
 rows = core.apply_filters(DATA, f)
 kpis = core.compute_kpis(DATA, f, rows)
 
-head_l, head_r1, head_r2 = st.columns([6, 1.15, 1.25], vertical_alignment="center")
-with head_l:
-    st.markdown(
-        f'<div class="luc-title">LUC Species Detection Explorer</div>'
-        f'<div class="luc-subtitle">{core.subtitle_text(DATA, f)}</div>',
-        unsafe_allow_html=True,
-    )
-with head_r1:
-    st.download_button(
-        "Download CSV",
-        data=core.export_csv(DATA, f, rows),
-        file_name=f"birdnet_{f.graph_type}_export.csv",
-        mime="text/csv",
-        use_container_width=True,
-        help="Exports the rows behind the chart currently on screen, not the full dataset.",
-    )
-with head_r2:
-    if st.button(
-        "Copied ✓" if st.session_state.copied else "Copy view link",
-        type="primary",
-        use_container_width=True,
-    ):
-        st.session_state.copied = True
-        st.rerun()
-
-if st.session_state.copied:
-    st.code(core.view_state_json(f), language="json")
-    st.caption("Copy this JSON to restore the current filter/view state.")
-    st.session_state.copied = False
+# Two header buttons have been withdrawn rather than shipped half-working:
+#
+#   'Copy view link'  copied nothing and produced no link — it printed the
+#                     filter state as JSON that nothing could read back. A
+#                     shareable view belongs in the URL via st.query_params.
+#   'Download CSV'    the export's shape is still unsettled, so it is out until
+#                     the schema is agreed. core.export_csv and its tests are
+#                     intact; only the button is gone.
+st.markdown(
+    f'<div class="luc-title">LUC Species Detection Explorer</div>'
+    f'<div class="luc-subtitle">{core.subtitle_text(DATA, f)}</div>',
+    unsafe_allow_html=True,
+)
 
 st.markdown('<div class="luc-rule"></div>', unsafe_allow_html=True)
 
@@ -614,6 +597,10 @@ with right:
     )
 
 # Filters may have changed above; recompute before drawing.
+#
+# When the export returns, it belongs here rather than at the top of the file:
+# built before the controls are read, it serves the previous interaction's
+# state and the file lags one click behind the screen.
 f = current_filters()
 rows = core.apply_filters(DATA, f)
 
@@ -1165,8 +1152,11 @@ with st.container(border=True):
             )
 
 
+# The footnote needs bottom clearance of its own: the expander that follows is
+# a Streamlit block with its own margins, and with only a top margin here the
+# two rendered on top of each other.
 st.markdown(
-    f'<div class="luc-subtitle" style="margin-top:24px">'
+    f'<div class="luc-footnote">'
     f'{DATA.meta["n_detection_rows"]:,} raw detections across '
     f'{DATA.meta["n_recordings"]:,} recordings · confidence thresholds computed '
     f'per-row from the source table · detection metric is summed 0/1 presence '
