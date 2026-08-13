@@ -1,0 +1,218 @@
+{
+  "thresholds": [
+    0.3,
+    0.5,
+    0.7,
+    0.9
+  ],
+  "buckets": [
+    {
+      "bucket": "Su'22",
+      "bucket_sort": 20222,
+      "season": "Summer",
+      "season_period_year": 2022,
+      "year_season": "2022 Summer"
+    },
+    {
+      "bucket": "Wi'22-23",
+      "bucket_sort": 20230,
+      "season": "Winter",
+      "season_period_year": 2023,
+      "year_season": "2022-2023 Winter"
+    },
+    {
+      "bucket": "Sp'23",
+      "bucket_sort": 20231,
+      "season": "Spring",
+      "season_period_year": 2023,
+      "year_season": "2023 Spring"
+    },
+    {
+      "bucket": "Su'23",
+      "bucket_sort": 20232,
+      "season": "Summer",
+      "season_period_year": 2023,
+      "year_season": "2023 Summer"
+    },
+    {
+      "bucket": "Sp'24",
+      "bucket_sort": 20241,
+      "season": "Spring",
+      "season_period_year": 2024,
+      "year_season": "2024 Spring"
+    },
+    {
+      "bucket": "Su'24",
+      "bucket_sort": 20242,
+      "season": "Summer",
+      "season_period_year": 2024,
+      "year_season": "2024 Summer"
+    },
+    {
+      "bucket": "Wi'24-25",
+      "bucket_sort": 20250,
+      "season": "Winter",
+      "season_period_year": 2025,
+      "year_season": "2024-2025 Winter"
+    },
+    {
+      "bucket": "Sp'25",
+      "bucket_sort": 20251,
+      "season": "Spring",
+      "season_period_year": 2025,
+      "year_season": "2025 Spring"
+    },
+    {
+      "bucket": "Su'25",
+      "bucket_sort": 20252,
+      "season": "Summer",
+      "season_period_year": 2025,
+      "year_season": "2025 Summer"
+    }
+  ],
+  "years": [
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "seasons": [
+    "Spring",
+    "Summer",
+    "Winter"
+  ],
+  "species": [
+    {
+      "code": "BEWR",
+      "name": "Bewick's Wren",
+      "scientific": "Thryomanes bewickii",
+      "guild": "LUHI"
+    },
+    {
+      "code": "BRCR",
+      "name": "Brown Creeper",
+      "scientific": "Certhia americana",
+      "guild": "BI"
+    },
+    {
+      "code": "CBCH",
+      "name": "Chestnut-backed Chickadee",
+      "scientific": "Poecile rufescens",
+      "guild": "TFI"
+    },
+    {
+      "code": "DOWO",
+      "name": "Downy Woodpecker",
+      "scientific": "Dryobates pubescens",
+      "guild": "BI"
+    },
+    {
+      "code": "PAWR",
+      "name": "Pacific Wren",
+      "scientific": "Troglodytes pacificus",
+      "guild": "LUHI"
+    },
+    {
+      "code": "SPTO",
+      "name": "Spotted Towhee",
+      "scientific": "Pipilo maculatus",
+      "guild": "LUHI"
+    },
+    {
+      "code": "SWTH",
+      "name": "Swainson's Thrush",
+      "scientific": "Catharus ustulatus",
+      "guild": "LUHI"
+    },
+    {
+      "code": "WIWA",
+      "name": "Wilson's Warbler",
+      "scientific": "Cardellina pusilla",
+      "guild": "LUHI"
+    }
+  ],
+  "guild_names": {
+    "BI": "Bark insectivore",
+    "LUHI": "Lower/understory insectivore",
+    "TFI": "Tree foliage insectivore"
+  },
+  "preserves": [
+    "Burley",
+    "Cowling",
+    "Divide",
+    "Eglon",
+    "Grovers",
+    "Hahobas",
+    "Hansville",
+    "Johnson",
+    "Klingel",
+    "Newberry",
+    "Rocky",
+    "Tahuya"
+  ],
+  "treatment_groups": [
+    "control",
+    "posttreat",
+    "pretreat"
+  ],
+  "treatment_components": [
+    "cwd",
+    "future invasive control",
+    "invasive/brush control",
+    "invasives control",
+    "none",
+    "patch cut",
+    "planting",
+    "reforestation",
+    "snags",
+    "thinning"
+  ],
+  "n_recordings": 18211,
+  "n_summary_rows": 145688,
+  "n_detection_rows": 287399,
+  "total_audio_hours": 2983.2,
+  "nominal_cycle_seconds": 600,
+  "typical_recording_seconds": 590,
+  "periods": [
+    "control",
+    "posttreat",
+    "pretreat"
+  ],
+  "plots_with_both_periods": [
+    "COWE",
+    "DCF03",
+    "DCF04",
+    "DCF05",
+    "EBE",
+    "EBW",
+    "GCP-A",
+    "GCP-D",
+    "GCP-E",
+    "GCP-F"
+  ],
+  "n_truncated_recordings": 18,
+  "recordings_with_detection": {
+    "0.3": 12837,
+    "0.5": 11079,
+    "0.7": 8984,
+    "0.9": 5599
+  },
+  "hours": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "solar_bins": [
+    -2,
+    -1,
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "sunrise_note": "Timestamps are Pacific wall-clock time; the source subset was filtered to 4-10 AM Pacific. Sunrise is computed per plot per date from latitude and longitude (NOAA algorithm), with the US daylight-saving rule applied."
+}

@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="modernist.css">
+<style>
+  html, body { margin: 0; padding: 0; }
+  select.input { appearance: none; -webkit-appearance: none; background-image: none; cursor: pointer; }
+</style>
+</helmet>
+<div style="display:flex;flex-direction:column;min-height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);">
+
+  
+
+  
+
+  <header style="padding:var(--space-4) var(--space-6);border-bottom:2px solid var(--color-divider);display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4);flex-wrap:wrap;">
+    <div>
+      <h1 style="margin:0;font-size:26px;letter-spacing:-.02em;">LUC Species Detection Explorer</h1>
+      <p style="margin:5px 0 0;font-size:12.5px;color:var(--color-neutral-600);">{{ subtitleText }}</p>
+    </div>
+    <div style="display:flex;gap:var(--space-2);">
+      <button class="btn btn-secondary" onClick="{{ downloadCsv }}">Download CSV</button>
+      <button class="btn btn-primary" style="{{ primaryBtnStyle }}" onClick="{{ copyLink }}">{{ copyLabel }}</button>
+    </div>
+  </header><main style="display:flex;flex-direction:column;flex:1;overflow:auto;">
+    <section style="padding:0;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:var(--color-divider);border:2px solid var(--color-divider);margin:var(--space-6) var(--space-6) 0;">
+      <sc-for list="{{ cards }}" as="c" hint-placeholder-count="5">
+        <div style="background:var(--color-bg);padding:var(--space-3) var(--space-4);">
+          <div style="{{ c.labelStyle }}">{{ c.label }}</div>
+          <div style="font-family:var(--font-heading);font-weight:800;font-size:28px;letter-spacing:-.02em;margin:var(--space-2) 0 2px;line-height:1;">{{ c.value }}</div>
+          <div style="font-size:11.5px;color:var(--color-neutral-600);">{{ c.sub }}</div>
+        </div>
+      </sc-for>
+    </section>
+
+    
+
+    <div style="padding:var(--space-4) var(--space-6) 0;background:var(--color-surface);">
+    <span style="font-family: var(--font-heading); font-weight: 800; font-size: 16px; letter-spacing: -.01em; color: #757171">Select Parameters</span>
+  </div>
+  <section style="padding:var(--space-4) var(--space-6);border-bottom:2px solid var(--color-divider);background:var(--color-surface);display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-6);position:relative;">
+    <sc-if value="{{ anyDropdownOpen }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ closeDropdowns }}" style="position:fixed;inset:0;z-index:15;"></div>
+    </sc-if>
+
+    <div style="display:flex;flex-direction:column;gap:7px;position:relative;">
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);">Species code</span>
+      <button class="btn btn-secondary" onClick="{{ speciesDD.toggle }}" style="font-size:12px;padding:7px 12px;white-space:nowrap;">{{ speciesDD.label }}</button>
+      <sc-if value="{{ speciesDD.isOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:var(--color-bg);border:2px solid var(--color-divider);box-shadow:var(--shadow-md);min-width:250px;max-height:280px;overflow:auto;padding:var(--space-2);display:flex;flex-direction:column;">
+          <sc-for list="{{ speciesDD.options }}" as="o" hint-placeholder-count="8">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 6px;cursor:pointer;">
+              <input type="checkbox" checked="{{ o.checked }}" onChange="{{ o.on }}">
+              <span>{{ o.label }}</span>
+            </label>
+          </sc-for>
+          <div style="display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid var(--color-divider);">
+            <button class="btn btn-ghost" onClick="{{ speciesDD.selectAll }}" style="font-size:11px;padding:4px 8px;">All</button>
+            <button class="btn btn-ghost" onClick="{{ speciesDD.selectNone }}" style="font-size:11px;padding:4px 8px;">None</button>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:7px;">
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);">Year range</span>
+      <div style="display:flex;align-items:center;gap:var(--space-2);">
+        <select class="input" value="{{ yearFrom }}" onChange="{{ setYearFrom }}">
+          <sc-for list="{{ yearOpts }}" as="y" hint-placeholder-count="5"><option value="{{ y }}">{{ y }}</option></sc-for>
+        </select>
+        <span style="color:var(--color-neutral-500);">—</span>
+        <select class="input" value="{{ yearTo }}" onChange="{{ setYearTo }}">
+          <sc-for list="{{ yearOpts }}" as="y" hint-placeholder-count="5"><option value="{{ y }}">{{ y }}</option></sc-for>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:7px;">
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);">Season · {{ seasonSel }}/{{ seasonTot }}</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <sc-for list="{{ seasonOpts }}" as="o" hint-placeholder-count="3">
+          <button onClick="{{ o.on }}" style="{{ o.style }}">{{ o.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="width:0;border-left:2px solid var(--color-divider);align-self:stretch;"></div>
+
+    
+
+    <div style="display:flex;flex-direction:column;gap:7px;position:relative;">
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);">Preserve</span>
+      <button class="btn btn-secondary" onClick="{{ preserveDD.toggle }}" style="font-size:12px;padding:7px 12px;white-space:nowrap;">{{ preserveDD.label }}</button>
+      <sc-if value="{{ preserveDD.isOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:var(--color-bg);border:2px solid var(--color-divider);box-shadow:var(--shadow-md);min-width:200px;max-height:280px;overflow:auto;padding:var(--space-2);display:flex;flex-direction:column;">
+          <sc-for list="{{ preserveDD.options }}" as="o" hint-placeholder-count="3">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 6px;cursor:pointer;">
+              <input type="checkbox" checked="{{ o.checked }}" onChange="{{ o.on }}">
+              <span>{{ o.label }}</span>
+            </label>
+          </sc-for>
+          <div style="display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid var(--color-divider);">
+            <button class="btn btn-ghost" onClick="{{ preserveDD.selectAll }}" style="font-size:11px;padding:4px 8px;">All</button>
+            <button class="btn btn-ghost" onClick="{{ preserveDD.selectNone }}" style="font-size:11px;padding:4px 8px;">None</button>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:7px;position:relative;">
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);">Plot</span>
+      <button class="btn btn-secondary" onClick="{{ plotDD.toggle }}" style="font-size:12px;padding:7px 12px;white-space:nowrap;">{{ plotDD.label }}</button>
+      <sc-if value="{{ plotDD.isOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:var(--color-bg);border:2px solid var(--color-divider);box-shadow:var(--shadow-md);min-width:230px;max-height:280px;overflow:auto;padding:var(--space-2);display:flex;flex-direction:column;">
+          <sc-for list="{{ plotDD.options }}" as="o" hint-placeholder-count="8">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 6px;cursor:pointer;">
+              <input type="checkbox" checked="{{ o.checked }}" onChange="{{ o.on }}">
+              <span>{{ o.label }}</span>
+            </label>
+          </sc-for>
+          <div style="display:flex;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid var(--color-divider);">
+            <button class="btn btn-ghost" onClick="{{ plotDD.selectAll }}" style="font-size:11px;padding:4px 8px;">All</button>
+            <button class="btn btn-ghost" onClick="{{ plotDD.selectNone }}" style="font-size:11px;padding:4px 8px;">None</button>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="width:0;border-left:2px solid var(--color-divider);align-self:stretch;"></div>
+
+    <div style="display:flex;flex-direction:column;gap:7px;">
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);">Treatment group</span>
+      <div style="display:inline-flex;flex-wrap:wrap;">
+        <sc-for list="{{ tgroupOpts }}" as="o" hint-placeholder-count="5">
+          <button onClick="{{ o.on }}" style="{{ o.style }}">{{ o.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:7px;">
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);">Treatment type · {{ ttypeSel }}/{{ ttypeTot }}</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <sc-for list="{{ ttypeOpts }}" as="o" hint-placeholder-count="4">
+          <button onClick="{{ o.on }}" style="{{ o.style }}">{{ o.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:7px;">
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);">Confidence</span>
+      <div style="display:inline-flex;">
+        <sc-for list="{{ confOpts }}" as="o" hint-placeholder-count="4">
+          <button onClick="{{ o.on }}" style="{{ o.style }}">{{ o.label }}</button>
+        </sc-for>
+      </div>
+    </div><div style="margin-left:auto;align-self:center;">
+      <button class="btn btn-secondary" onClick="{{ resetAll }}" style="font-size:11px;padding:6px 12px;letter-spacing:.06em;">RESET</button>
+    </div>
+  </section><section style="padding:var(--space-4) var(--space-6) 0;display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:var(--space-3);">
+        <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);font-family:var(--font-heading);font-weight:800;">Graph type</span>
+        <div style="display:inline-flex;">
+          <sc-for list="{{ viewTabs }}" as="t" hint-placeholder-count="5">
+            <button onClick="{{ t.on }}" style="{{ t.style }}">{{ t.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:var(--space-3);">
+        <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);font-family:var(--font-heading);font-weight:800;">Compare by</span>
+        <div style="display:inline-flex;">
+          <sc-for list="{{ compareOpts }}" as="o" hint-placeholder-count="5">
+            <button onClick="{{ o.on }}" style="{{ o.style }}">{{ o.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+    </section><section style="padding:var(--space-4) var(--space-6) var(--space-6);flex:1;">
+      <div style="background:var(--color-surface);border:2px solid var(--color-divider);padding:var(--space-6);min-height:420px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-4);margin-bottom:var(--space-2);flex-wrap:wrap;padding-bottom:var(--space-3);border-bottom:2px solid var(--color-divider);">
+          <div>
+            <h2 style="margin:0;font-size:19px;letter-spacing:-.01em;">{{ panelTitle }}</h2>
+            <p style="margin:3px 0 0;font-size:12.5px;color:var(--color-neutral-600);">{{ panelSub }}</p>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4);">
+            <sc-for list="{{ legend }}" as="l" hint-placeholder-count="3">
+              <div style="display:inline-flex;align-items:center;gap:7px;">
+                <span style="width:12px;height:12px;background:{{ l.color }};"></span>
+                <span style="font-size:12.5px;font-weight:600;">{{ l.label }}</span>
+                <span style="font-size:11.5px;color:var(--color-neutral-600);">{{ l.total }}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ showOccupancy }}" hint-placeholder-val="{{ false }}">
+              <div style="display:inline-flex;">
+                <sc-for list="{{ granOpts }}" as="g" hint-placeholder-count="2">
+                  <button onClick="{{ g.on }}" style="{{ g.style }}">{{ g.label }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+
+        <sc-if value="{{ hasData }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <sc-if value="{{ showLine }}" hint-placeholder-val="{{ true }}">
+              <svg viewBox="0 0 820 300" style="width:100%;height:auto;display:block;margin-top:var(--space-3);">
+                <sc-for list="{{ yTicks }}" as="t" hint-placeholder-count="5">
+                  <line x1="46" y1="{{ t.y }}" x2="802" y2="{{ t.y }}" stroke="#d7d3d3" stroke-width="1"></line>
+                  <text x="40" y="{{ t.ty }}" text-anchor="end" font-family="Archivo" font-size="10" fill="#7d7979">{{ t.label }}</text>
+                </sc-for>
+                <sc-for list="{{ series }}" as="s" hint-placeholder-count="1">
+                  <path d="{{ s.area }}" fill="{{ s.color }}" fill-opacity="0.08"></path>
+                  <path d="{{ s.path }}" fill="none" stroke="{{ s.color }}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></path>
+                  <sc-for list="{{ s.points }}" as="p" hint-placeholder-count="8">
+                    <circle cx="{{ p.x }}" cy="{{ p.y }}" r="3.3" fill="#f3f2f2" stroke="{{ s.color }}" stroke-width="2"><title>{{ p.tip }}</title></circle>
+                  </sc-for>
+                </sc-for>
+                <sc-for list="{{ xLabels }}" as="x" hint-placeholder-count="8">
+                  <text x="{{ x.x }}" y="293" text-anchor="middle" font-family="Archivo" font-size="9.5" fill="#7d7979">{{ x.label }}</text>
+                </sc-for>
+              </svg>
+            </sc-if>
+
+            <sc-if value="{{ showBars }}" hint-placeholder-val="{{ false }}">
+              <svg viewBox="0 0 820 300" style="width:100%;height:auto;display:block;margin-top:var(--space-3);">
+                <sc-for list="{{ yTicks }}" as="t" hint-placeholder-count="5">
+                  <line x1="46" y1="{{ t.y }}" x2="802" y2="{{ t.y }}" stroke="#d7d3d3" stroke-width="1"></line>
+                  <text x="40" y="{{ t.ty }}" text-anchor="end" font-family="Archivo" font-size="10" fill="#7d7979">{{ t.label }}</text>
+                </sc-for>
+                <sc-for list="{{ bars }}" as="b" hint-placeholder-count="8">
+                  <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" fill="{{ b.color }}"><title>{{ b.tip }}</title></rect>
+                  <text x="{{ b.cx }}" y="{{ b.vy }}" text-anchor="middle" font-family="Archivo" font-size="10.5" font-weight="600" fill="#605d5d">{{ b.valLabel }}</text>
+                  <text x="{{ b.cx }}" y="293" text-anchor="middle" font-family="Archivo" font-size="10.5" font-weight="600" fill="#7d7979">{{ b.label }}</text>
+                </sc-for>
+              </svg>
+            </sc-if>
+
+            <sc-if value="{{ showOccupancy }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:var(--space-3);">
+                <div style="{{ occGridStyle }}">
+                  <div></div>
+                  <sc-for list="{{ occCols }}" as="oc" hint-placeholder-count="6">
+                    <div style="font-size:9.5px;text-align:center;color:var(--color-neutral-600);font-weight:600;padding-bottom:3px;">{{ oc }}</div>
+                  </sc-for>
+                  <div style="display:flex;align-items:center;font-size:9.5px;color:var(--color-neutral-600);font-weight:700;">SAMP.</div>
+                  <sc-for list="{{ samplingCells }}" as="sd" hint-placeholder-count="6">
+                    <div style="{{ sd.style }}">{{ sd.d }}</div>
+                  </sc-for>
+                  <sc-for list="{{ occRows }}" as="orow" hint-placeholder-count="8">
+                    <div style="display:flex;align-items:center;font-family:var(--font-heading);font-weight:800;font-size:11.5px;">{{ orow.code }}</div>
+                    <sc-for list="{{ orow.cells }}" as="cell" hint-placeholder-count="6">
+                      <div style="{{ cell.style }}">{{ cell.label }}</div>
+                    </sc-for>
+                  </sc-for>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:var(--space-3);">
+                  <span style="font-size:10.5px;color:var(--color-neutral-600);">Low</span>
+                  <div style="{{ occLegendStyle }}"></div>
+                  <span style="font-size:10.5px;color:var(--color-neutral-600);">High</span>
+                  <span style="font-size:10.5px;color:var(--color-neutral-500);margin-left:var(--space-3);">SAMP. row = sampling days per bucket</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showRegion }}" hint-placeholder-val="{{ false }}">
+              <div style="position:relative;height:420px;margin-top:var(--space-3);border:2px solid var(--color-divider);background:var(--color-bg);">
+                <sc-for list="{{ regionPreserves }}" as="pr" hint-placeholder-count="3">
+                  <div style="{{ pr.boxStyle }}">
+                    <div style="font-family:var(--font-heading);font-weight:800;font-size:12px;letter-spacing:.04em;">{{ pr.name }}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                      <sc-for list="{{ pr.nodes }}" as="nd" hint-placeholder-count="4">
+                        <div style="{{ nd.style }}" title="{{ nd.id }}">
+                          <span style="font-family:var(--font-heading);font-weight:800;font-size:11.5px;">{{ nd.id }}</span>
+                          <span style="font-size:10px;">{{ nd.rc }}/{{ nd.tot }} sp</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+                <p style="position:absolute;bottom:6px;right:10px;margin:0;font-size:10.5px;color:var(--color-neutral-500);">Schematic layout — swap for a real GPS/GeoJSON basemap.</p>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noData }}" hint-placeholder-val="{{ false }}">
+          <div style="height:340px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--color-neutral-600);">
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:17px;">No detections match these filters</div>
+            <div style="font-size:13px;margin-top:6px;">Loosen the confidence threshold or widen the selection.</div>
+          </div>
+        </sc-if>
+      </div>
+    </section>
+
+    <sc-if value="{{ showBuildNotes }}" hint-placeholder-val="{{ true }}">
+      <footer style="margin-top:auto;padding:var(--space-4) var(--space-6);border-top:2px solid var(--color-divider);background:var(--color-surface);display:flex;gap:var(--space-3);align-items:flex-start;">
+        <span class="tag tag-outline" style="white-space:nowrap;">BUILD NOTE</span>
+        <p style="margin:0;font-size:12.5px;color:var(--color-neutral-700);line-height:1.55;">This mockup runs on ~4.3k synthetic summary rows in the browser. For the real 145k×32 dataset, pre-aggregate once (year_season × plot × threshold) and drive the same layout with <strong>Streamlit or Panel/Voilà</strong> for a shareable link, or <strong>ipywidgets</strong> to keep it inline in the notebook. See the chat for the full recommendation.</p>
+      </footer>
+    </sc-if>
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:900},&quot;accentColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#138eec&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;defaultView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;trends&quot;,&quot;options&quot;:[&quot;trends&quot;,&quot;species&quot;,&quot;diversity&quot;,&quot;occupancy&quot;,&quot;region&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;defaultCompare&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;treatment_group&quot;,&quot;options&quot;:[&quot;none&quot;,&quot;treatment_group&quot;,&quot;treatment_type&quot;,&quot;preserve&quot;,&quot;guild&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;showBuildNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Appearance&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.accent = props.accentColor || '#138eec';
+    this.accentRgb = this.hexToRgb(this.accent);
+    this.accentRgbStr = `${this.accentRgb.r},${this.accentRgb.g},${this.accentRgb.b}`;
+    this.INK = '#201e1d';
+    this.N600 = '#7d7979';
+    this.A400 = this.shadeHex(this.accent, 0.55);
+    this.A700 = this.shadeHex(this.accent, -0.4);
+    this.BIRDNET_MODEL = 'BirdNET';
+    this.cfg = this.buildConfig();
+    this.rows = this.buildRows();
+    this.tf = { 0.3: 1, 0.5: 0.7, 0.7: 0.42, 0.9: 0.2 };
+    this.state = {
+      view: props.defaultView || 'trends',
+      compareBy: props.defaultCompare || 'treatment_group',
+      conf: 0.5,
+      yearFrom: 2022,
+      yearTo: 2026,
+      seasons: ['Spring', 'Summer', 'Winter'],
+      species: this.cfg.species.map(s => s.code),
+      preserves: this.cfg.preserves.slice(),
+      plots: this.cfg.plots.map(p => p.id),
+      ttypes: ['Burn', 'Graze', 'Mow', 'Reference'],
+      tgroup: 'all',
+      occGranularity: 'daily',
+      openDropdown: null,
+      copied: false,
+    };
+  }
+
+  hexToRgb(hex) {
+    const h = hex.replace('#', '');
+    const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+    const num = parseInt(full, 16);
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+  }
+  shadeHex(hex, pct) {
+    const { r, g, b } = this.hexToRgb(hex);
+    const blend = (c) => pct >= 0 ? Math.round(c + (255 - c) * pct) : Math.round(c * (1 + pct));
+    const clamp = (v) => Math.max(0, Math.min(255, v));
+    return `#${[blend(r), blend(g), blend(b)].map(v => clamp(v).toString(16).padStart(2, '0')).join('')}`;
+  }
+
+  buildConfig() {
+    const species = [
+      { code: 'NOCA', name: 'Northern Cardinal', pop: 0.92, guild: 'Granivore' },
+      { code: 'CARW', name: 'Carolina Wren', pop: 0.84, guild: 'Bark forager' },
+      { code: 'AMRO', name: 'American Robin', pop: 0.8, guild: 'Ground forager' },
+      { code: 'BGGN', name: 'Blue-gray Gnatcatcher', pop: 0.55, guild: 'Foliage gleaner' },
+      { code: 'EAWP', name: 'Eastern Wood-Pewee', pop: 0.48, guild: 'Aerial insectivore' },
+      { code: 'WOTH', name: 'Wood Thrush', pop: 0.4, guild: 'Ground forager' },
+      { code: 'KEWA', name: 'Kentucky Warbler', pop: 0.3, guild: 'Foliage gleaner' },
+      { code: 'PROW', name: 'Prothonotary Warbler', pop: 0.24, guild: 'Foliage gleaner' },
+    ];
+    const preserves = ['Cedar Ridge', 'Marsh Hollow', 'Oak Barrens'];
+    const plots = [
+      { id: 'CR-01', preserve: 'Cedar Ridge', ttype: 'Burn', control: false },
+      { id: 'CR-02', preserve: 'Cedar Ridge', ttype: 'Burn', control: true },
+      { id: 'CR-03', preserve: 'Cedar Ridge', ttype: 'Graze', control: false },
+      { id: 'CR-04', preserve: 'Cedar Ridge', ttype: 'Reference', control: true },
+      { id: 'MH-01', preserve: 'Marsh Hollow', ttype: 'Mow', control: false },
+      { id: 'MH-02', preserve: 'Marsh Hollow', ttype: 'Mow', control: true },
+      { id: 'MH-03', preserve: 'Marsh Hollow', ttype: 'Graze', control: false },
+      { id: 'MH-04', preserve: 'Marsh Hollow', ttype: 'Reference', control: true },
+      { id: 'OB-01', preserve: 'Oak Barrens', ttype: 'Burn', control: false },
+      { id: 'OB-02', preserve: 'Oak Barrens', ttype: 'Graze', control: true },
+      { id: 'OB-03', preserve: 'Oak Barrens', ttype: 'Mow', control: false },
+      { id: 'OB-04', preserve: 'Oak Barrens', ttype: 'Reference', control: true },
+    ];
+    return {
+      species, preserves, plots,
+      years: [2022, 2023, 2024, 2025, 2026],
+      seasonOrder: ['Spring', 'Summer', 'Winter'],
+      models: ['BirdNET', 'HawkEars', 'Random Forest'],
+      ttypes: ['Burn', 'Graze', 'Mow', 'Reference'],
+      treatYear: 2024,
+    };
+  }
+
+  hash(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return ((h >>> 0) % 100000) / 100000;
+  }
+
+  buildRows() {
+    const c = this.cfg;
+    const seasonF = { Spring: 1.15, Summer: 1.0, Winter: 0.45 };
+    const modelF = { 'BirdNET': 1.0, 'HawkEars': 0.92, 'Random Forest': 0.82 };
+    const preserveF = { 'Cedar Ridge': 1.06, 'Marsh Hollow': 0.9, 'Oak Barrens': 1.0 };
+    const typeGain = { Burn: 0.13, Graze: 0.08, Mow: 0.05, Reference: 0 };
+    const rows = [];
+    for (const y of c.years) {
+      for (const season of c.seasonOrder) {
+        for (const model of c.models) {
+          for (const pl of c.plots) {
+            let tgroup;
+            if (pl.control) tgroup = 'control';
+            else tgroup = y < c.treatYear ? 'pretreat' : 'posttreat';
+            let tf;
+            if (pl.control) tf = 1 + 0.02 * (y - c.treatYear);
+            else tf = y < c.treatYear ? 1.0 : 1 + typeGain[pl.ttype] * (y - c.treatYear + 1);
+            for (const sp of c.species) {
+              const n = 0.75 + 0.5 * this.hash(`${y}|${season}|${model}|${pl.id}|${sp.code}`);
+              const det = Math.round(42 * sp.pop * seasonF[season] * modelF[model] * preserveF[pl.preserve] * n * tf);
+              rows.push({ year: y, season, model, preserve: pl.preserve, plotId: pl.id, ttype: pl.ttype, tgroup, code: sp.code, name: sp.name, guild: sp.guild, det });
+            }
+          }
+        }
+      }
+    }
+    return rows;
+  }
+
+  chip(sel) {
+    return { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '6px 10px', borderRadius: '0', fontFamily: 'var(--font-heading)', fontSize: '12.5px', fontWeight: 600, lineHeight: 1.2, cursor: 'pointer', userSelect: 'none', border: `1px solid ${sel ? this.accent : 'var(--color-divider)'}`, background: sel ? this.accent : 'var(--color-surface)', color: sel ? '#ffffff' : 'var(--color-text)' };
+  }
+  seg(sel, first, big) {
+    return { padding: big ? '8px 15px' : '7px 11px', borderTop: '1px solid var(--color-divider)', borderBottom: '1px solid var(--color-divider)', borderRight: '1px solid var(--color-divider)', borderLeft: first ? '1px solid var(--color-divider)' : 'none', borderRadius: '0', fontFamily: 'var(--font-heading)', fontSize: big ? '13px' : '12px', fontWeight: big ? 800 : 600, lineHeight: 1.2, cursor: 'pointer', background: sel ? this.accent : 'transparent', color: sel ? '#ffffff' : 'var(--color-text)', whiteSpace: 'nowrap' };
+  }
+
+  toggle(key, val) {
+    const arr = this.state[key];
+    const next = arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
+    this.setState({ [key]: next });
+  }
+  togglePreserve(pv) {
+    const has = this.state.preserves.includes(pv);
+    const nextPres = has ? this.state.preserves.filter(x => x !== pv) : [...this.state.preserves, pv];
+    const avail = this.cfg.plots.filter(p => nextPres.includes(p.preserve)).map(p => p.id);
+    let nextPlots;
+    if (has) nextPlots = this.state.plots.filter(id => avail.includes(id));
+    else {
+      const add = this.cfg.plots.filter(p => p.preserve === pv).map(p => p.id);
+      nextPlots = Array.from(new Set([...this.state.plots, ...add]));
+    }
+    this.setState({ preserves: nextPres, plots: nextPlots });
+  }
+  resetAll() {
+    this.setState({
+      conf: 0.5, yearFrom: 2022, yearTo: 2026,
+      seasons: ['Spring', 'Summer', 'Winter'], species: this.cfg.species.map(s => s.code),
+      preserves: this.cfg.preserves.slice(), plots: this.cfg.plots.map(p => p.id),
+      ttypes: ['Burn', 'Graze', 'Mow', 'Reference'], tgroup: 'all', occGranularity: 'daily', openDropdown: null,
+    });
+  }
+
+  groupVal(r, cb) {
+    if (cb === 'treatment_group') return r.tgroup;
+    if (cb === 'treatment_type') return r.ttype;
+    if (cb === 'preserve') return r.preserve;
+    if (cb === 'guild') return r.guild;
+    return 'all';
+  }
+  groupColor(cb, val, idx) {
+    if (cb === 'treatment_group') return ({ control: this.N600, pretreat: this.A400, posttreat: this.accent, treat: this.INK }[val]) || this.accent;
+    const pal = [this.accent, this.INK, this.N600, this.A400, this.A700];
+    return pal[idx % pal.length];
+  }
+
+  fmt(n) { return Math.round(n).toLocaleString('en-US'); }
+
+  filtered() {
+    const s = this.state;
+    return this.rows.filter(r =>
+      r.model === this.BIRDNET_MODEL &&
+      r.year >= s.yearFrom && r.year <= s.yearTo &&
+      s.seasons.includes(r.season) &&
+      s.species.includes(r.code) &&
+      s.preserves.includes(r.preserve) &&
+      s.plots.includes(r.plotId) &&
+      s.ttypes.includes(r.ttype) &&
+      (s.tgroup === 'all' || (s.tgroup === 'treat' ? (r.tgroup === 'pretreat' || r.tgroup === 'posttreat') : r.tgroup === s.tgroup))
+    );
+  }
+
+  buckets() {
+    const s = this.state, out = [];
+    for (let y = s.yearFrom; y <= s.yearTo; y++)
+      for (const season of this.cfg.seasonOrder)
+        if (s.seasons.includes(season)) out.push({ year: y, season, label: `${season[0]}'${String(y).slice(2)}` });
+    return out;
+  }
+
+  renderVals() {
+    const s = this.state, tf = this.tf[s.conf], A = this.accent;
+    const rows = this.filtered();
+    const buckets = this.buckets();
+
+    const confOpts = [0.3, 0.5, 0.7, 0.9].map((c, i) => ({ label: c.toFixed(1), val: c, on: () => this.setState({ conf: c }), style: this.seg(s.conf === c, i === 0) }));
+    const seasonOpts = this.cfg.seasonOrder.map(se => ({ label: se, on: () => this.toggle('seasons', se), style: this.chip(s.seasons.includes(se)) }));
+    const availPlots = this.cfg.plots.filter(p => s.preserves.includes(p.preserve));
+    const tgroupOpts = ['control', 'pretreat', 'posttreat', 'treat', 'all'].map((g, i) => ({ label: g, on: () => this.setState({ tgroup: g }), style: this.seg(s.tgroup === g, i === 0) }));
+    const ttypeOpts = this.cfg.ttypes.map(t => ({ label: t, on: () => this.toggle('ttypes', t), style: this.chip(s.ttypes.includes(t)) }));
+
+    const speciesDD = {
+      isOpen: s.openDropdown === 'species',
+      toggle: () => this.setState({ openDropdown: s.openDropdown === 'species' ? null : 'species' }),
+      label: `Species (${s.species.length}/${this.cfg.species.length})`,
+      options: this.cfg.species.map(sp => ({ label: `${sp.code} — ${sp.name}`, checked: s.species.includes(sp.code), on: () => this.toggle('species', sp.code) })),
+      selectAll: () => this.setState({ species: this.cfg.species.map(x => x.code) }),
+      selectNone: () => this.setState({ species: [] }),
+    };
+    const preserveDD = {
+      isOpen: s.openDropdown === 'preserve',
+      toggle: () => this.setState({ openDropdown: s.openDropdown === 'preserve' ? null : 'preserve' }),
+      label: `Preserve (${s.preserves.length}/${this.cfg.preserves.length})`,
+      options: this.cfg.preserves.map(pv => ({ label: pv, checked: s.preserves.includes(pv), on: () => this.togglePreserve(pv) })),
+      selectAll: () => this.setState({ preserves: this.cfg.preserves.slice(), plots: this.cfg.plots.map(p => p.id) }),
+      selectNone: () => this.setState({ preserves: [], plots: [] }),
+    };
+    const plotDD = {
+      isOpen: s.openDropdown === 'plot',
+      toggle: () => this.setState({ openDropdown: s.openDropdown === 'plot' ? null : 'plot' }),
+      label: `Plot (${s.plots.length}/${availPlots.length})`,
+      options: availPlots.map(p => ({ label: `${p.id} · ${p.ttype}${p.control ? ' (control)' : ''}`, checked: s.plots.includes(p.id), on: () => this.toggle('plots', p.id) })),
+      selectAll: () => this.setState({ plots: availPlots.map(p => p.id) }),
+      selectNone: () => this.setState({ plots: [] }),
+    };
+
+    const viewTabs = [['trends', 'Trends'], ['species', 'Species'], ['diversity', 'Diversity'], ['occupancy', 'Occupancy'], ['region', 'Region']].map(([v, l], i) => ({ label: l, on: () => this.setState({ view: v }), style: this.seg(s.view === v, i === 0, true) }));
+    const compareOpts = [['none', 'None'], ['treatment_group', 'Treat. group'], ['treatment_type', 'Treat. type'], ['preserve', 'Preserve'], ['guild', 'Forage guild']].map(([v, l], i) => ({ label: l, on: () => this.setState({ compareBy: v }), style: this.seg(s.compareBy === v, i === 0) }));
+    const granOpts = [['daily', 'Daily %'], ['hourly', 'Hourly %']].map(([v, l], i) => ({ label: l, on: () => this.setState({ occGranularity: v }), style: this.seg(s.occGranularity === v, i === 0) }));
+
+    const totalDet = rows.reduce((a, r) => a + Math.round(r.det * tf), 0);
+    const spTot = {}; rows.forEach(r => { const v = Math.round(r.det * tf); if (v > 0) spTot[r.code] = (spTot[r.code] || 0) + v; });
+    const richness = Object.keys(spTot).length;
+    const activePlots = new Set(rows.filter(r => Math.round(r.det * tf) > 0).map(r => r.plotId)).size;
+    const mean = activePlots ? totalDet / activePlots : 0;
+    let topCode = null, topV = 0; for (const k in spTot) if (spTot[k] > topV) { topV = spTot[k]; topCode = k; }
+    const topName = topCode ? this.cfg.species.find(x => x.code === topCode).name : '—';
+    const labelStyle = { fontSize: '10px', letterSpacing: '.1em', textTransform: 'uppercase', color: this.accent, fontFamily: 'var(--font-heading)', fontWeight: 800 };
+    const cards = [
+      { label: 'Total detections', value: this.fmt(totalDet), sub: `at conf ≥ ${s.conf}`, labelStyle },
+      { label: 'Species richness', value: `${richness}`, sub: `of ${this.cfg.species.length} tracked`, labelStyle },
+      { label: 'Active plots', value: `${activePlots}`, sub: `across ${s.preserves.length} preserves`, labelStyle },
+      { label: 'Detections / plot', value: this.fmt(mean), sub: 'mean, filtered', labelStyle },
+      { label: 'Top species', value: topCode || '—', sub: topName, labelStyle },
+    ];
+
+    const hasData = rows.length > 0 && totalDet > 0;
+
+    const PADL = 46, PADR = 18, PADT = 18, PADB = 40, W = 820, H = 300;
+    const innerW = W - PADL - PADR, innerH = H - PADT - PADB;
+    const niceMax = (m) => { if (m <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(m))); const r = m / p; const step = r <= 1 ? 1 : r <= 2 ? 2 : r <= 5 ? 5 : 10; return step * p; };
+
+    let series = [], bars = [], legend = [], yTicks = [], xLabels = [];
+    let occGridStyle = null, occCols = [], occRows = [], samplingCells = [], occLegendStyle = null;
+    let regionPreserves = [];
+    let showLine = false, showBars = false, showOccupancy = false, showRegion = false;
+    let panelTitle = '', panelSub = '';
+
+    const buildSeries = (metric) => {
+      let gvals;
+      if (s.compareBy === 'none') gvals = [{ key: 'all', label: 'All selected' }];
+      else {
+        const seen = [];
+        if (s.compareBy === 'treatment_group') ['control', 'pretreat', 'posttreat'].forEach(g => { if (rows.some(r => r.tgroup === g)) seen.push(g); });
+        else { const set = new Set(rows.map(r => this.groupVal(r, s.compareBy))); Array.from(set).sort().forEach(g => seen.push(g)); }
+        gvals = seen.map(g => ({ key: g, label: g }));
+      }
+      const raw = gvals.map(g => buckets.map(b => {
+        const rs = rows.filter(r => r.year === b.year && r.season === b.season && (g.key === 'all' || this.groupVal(r, s.compareBy) === g.key));
+        if (metric === 'richness') return new Set(rs.filter(r => Math.round(r.det * tf) > 0).map(r => r.code)).size;
+        return rs.reduce((a, r) => a + Math.round(r.det * tf), 0);
+      }));
+      const flat = raw.flat();
+      const mx = niceMax(Math.max(1, ...flat));
+      const x = (i) => buckets.length > 1 ? PADL + i * (innerW / (buckets.length - 1)) : PADL + innerW / 2;
+      const y = (v) => PADT + innerH * (1 - v / mx);
+      series = gvals.map((g, gi) => {
+        const color = this.groupColor(s.compareBy, g.key, gi);
+        const pts = raw[gi].map((v, i) => ({ x: +x(i).toFixed(1), y: +y(v).toFixed(1), tip: `${buckets[i].label}: ${this.fmt(v)}` }));
+        const path = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' ');
+        const area = pts.length ? `${path} L${pts[pts.length - 1].x} ${PADT + innerH} L${pts[0].x} ${PADT + innerH} Z` : '';
+        const tot = raw[gi].reduce((a, v) => a + v, 0);
+        return { color, points: pts, path, area, label: g.label, total: metric === 'richness' ? `${Math.max(...raw[gi], 0)} max` : this.fmt(tot) };
+      });
+      legend = series.map(se => ({ color: se.color, label: se.label, total: se.total }));
+      yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => { const v = mx * f, yy = +y(v).toFixed(1); return { y: yy, ty: yy + 3, label: this.fmt(v) }; });
+      xLabels = buckets.map((b, i) => ({ x: +x(i).toFixed(1), label: b.label }));
+      showLine = true;
+    };
+
+    if (s.view === 'trends') { buildSeries('detections'); panelTitle = 'Detections over time'; panelSub = 'Summed 0/1 detections per season'; }
+    else if (s.view === 'diversity') { buildSeries('richness'); panelTitle = 'Species richness over time'; panelSub = 'Distinct species detected per season'; }
+    else if (s.view === 'species') {
+      showBars = true; panelTitle = 'Detections by species'; panelSub = 'Ranked totals across the selected range';
+      const arr = this.cfg.species.map(sp => ({ code: sp.code, v: spTot[sp.code] || 0 })).sort((a, b) => b.v - a.v);
+      const mx = niceMax(Math.max(1, ...arr.map(a => a.v)));
+      const n = arr.length, slot = innerW / n, bw = slot * 0.56;
+      bars = arr.map((a, i) => {
+        const h = innerH * (a.v / mx), x = PADL + i * slot + (slot - bw) / 2, yy = PADT + innerH - h;
+        return { x: +x.toFixed(1), y: +yy.toFixed(1), w: +bw.toFixed(1), h: +Math.max(h, 0).toFixed(1), cx: +(x + bw / 2).toFixed(1), vy: +(yy - 6).toFixed(1), color: A, label: a.code, valLabel: this.fmt(a.v), tip: `${a.code}: ${this.fmt(a.v)}` };
+      });
+      yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => { const v = mx * f, yy = +(PADT + innerH * (1 - f)).toFixed(1); return { y: yy, ty: yy + 3, label: this.fmt(v) }; });
+      legend = [];
+    }
+    else if (s.view === 'occupancy') {
+      showOccupancy = true;
+      const isHourly = s.occGranularity === 'hourly';
+      panelTitle = isHourly ? 'Hourly occupancy (%)' : 'Daily occupancy (%)';
+      panelSub = isHourly ? 'Share of active hours a species was detected' : 'Share of sampling days a species was detected';
+      const cols = buckets;
+      const codes = this.cfg.species.filter(sp => s.species.includes(sp.code));
+      const nPlots = Math.max(1, s.plots.length);
+      const decay = isHourly ? 2.4 : 6;
+      occCols = cols.map(b => b.label);
+      const sampDays = cols.map(b => 7 + Math.round(7 * this.hash('samp|' + b.label)));
+      occRows = codes.map(sp => {
+        const cells = cols.map(b => {
+          const det = rows.filter(r => r.code === sp.code && r.year === b.year && r.season === b.season).reduce((a, r) => a + Math.round(r.det * tf), 0);
+          const occ = Math.max(0, Math.min(100, Math.round(100 * (1 - Math.exp(-(det / nPlots) / decay)))));
+          const t = occ / 100;
+          return { label: `${occ}`, style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '32px', fontSize: '12px', fontWeight: 600, background: `rgba(${this.accentRgbStr},${(0.05 + 0.9 * t).toFixed(3)})`, color: t > 0.5 ? '#ffffff' : '#201e1d' } };
+        });
+        return { code: sp.code, cells };
+      });
+      samplingCells = sampDays.map(d => { const t = d / 14; return { d, style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '32px', fontSize: '12px', fontWeight: 600, background: `rgba(32,30,29,${(0.08 + 0.7 * t).toFixed(3)})`, color: t > 0.5 ? '#f3f2f2' : '#201e1d' } }; });
+      occGridStyle = { display: 'grid', gridTemplateColumns: `58px repeat(${cols.length},minmax(0,1fr))`, gap: '2px', alignItems: 'stretch' };
+      occLegendStyle = { height: '10px', width: '120px', background: `linear-gradient(to right, rgba(${this.accentRgbStr},0.05), rgba(${this.accentRgbStr},0.95))`, border: '1px solid var(--color-divider)' };
+      legend = [];
+    }
+    else if (s.view === 'region') {
+      showRegion = true; panelTitle = 'Species presence by plot'; panelSub = 'Selected species detected per plot';
+      const rich = {}; rows.forEach(r => { if (Math.round(r.det * tf) > 0) (rich[r.plotId] = rich[r.plotId] || new Set()).add(r.code); });
+      const layout = { 'Cedar Ridge': { x: 3, y: 6, w: 41, h: 42 }, 'Marsh Hollow': { x: 50, y: 50, w: 46, h: 44 }, 'Oak Barrens': { x: 58, y: 5, w: 38, h: 40 } };
+      const nSp = Math.max(1, s.species.length);
+      regionPreserves = s.preserves.map(pv => {
+        const pos = layout[pv] || { x: 5, y: 5, w: 40, h: 40 };
+        const pls = this.cfg.plots.filter(p => p.preserve === pv && s.plots.includes(p.id));
+        const nodes = pls.map(p => {
+          const rc = rich[p.id] ? rich[p.id].size : 0; const t = rc / nSp;
+          return { id: p.id, rc, tot: nSp, style: { display: 'flex', flexDirection: 'column', gap: '1px', alignItems: 'flex-start', justifyContent: 'center', padding: '5px 7px', minWidth: '58px', minHeight: '38px', border: '1px solid var(--color-divider)', background: `rgba(${this.accentRgbStr},${(0.08 + 0.85 * t).toFixed(3)})`, color: t > 0.5 ? '#ffffff' : '#201e1d' } };
+        });
+        return { name: pv, boxStyle: { position: 'absolute', left: pos.x + '%', top: pos.y + '%', width: pos.w + '%', height: pos.h + '%', border: '2px dashed var(--color-divider)', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', background: 'color-mix(in srgb, var(--color-bg) 65%, transparent)' }, nodes };
+      });
+      legend = [];
+    }
+
+    const subtitleText = `Conf ≥ ${s.conf} · ${s.yearFrom}–${s.yearTo} · ${s.preserves.length}/3 preserves · ${s.plots.length} plots`;
+    const selectionSummary = `${s.species.length} species · ${s.plots.length} plots · ${s.tgroup === 'all' ? 'all groups' : s.tgroup} · ${s.ttypes.length}/4 types`;
+
+    const downloadCsv = () => {
+      let lines = [];
+      if (showLine) { lines.push('year_season,group,value'); series.forEach(se => se.points.forEach((p, i) => lines.push(`${buckets[i].label},${se.label},${se.points[i].tip.split(': ')[1].replace(/,/g, '')}`))); }
+      else if (showBars) { lines.push('species_code,detections'); bars.forEach(b => lines.push(`${b.label},${b.valLabel.replace(/,/g, '')}`)); }
+      else if (showOccupancy) { lines.push('species_code,year_season,occupancy_pct'); occRows.forEach(r => r.cells.forEach((c, i) => lines.push(`${r.code},${occCols[i]},${c.label}`))); }
+      else { lines.push('preserve,plot,species_present,species_selected'); regionPreserves.forEach(pr => pr.nodes.forEach(n => lines.push(`${pr.name},${n.id},${n.rc},${n.tot}`))); }
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `birdnet_${s.view}_export.csv`; a.click(); URL.revokeObjectURL(a.href);
+    };
+    const copyLink = () => {
+      try { navigator.clipboard.writeText(JSON.stringify({ view: s.view, compareBy: s.compareBy, conf: s.conf, yearFrom: s.yearFrom, yearTo: s.yearTo, seasons: s.seasons, species: s.species, preserves: s.preserves, plots: s.plots, tgroup: s.tgroup, ttypes: s.ttypes, occGranularity: s.occGranularity })); } catch (e) {}
+      this.setState({ copied: true });
+      clearTimeout(this._ct); this._ct = setTimeout(() => this.setState({ copied: false }), 1600);
+    };
+
+    return {
+      confOpts, seasonOpts, tgroupOpts, ttypeOpts, viewTabs, compareOpts, granOpts,
+      speciesDD, preserveDD, plotDD,
+      anyDropdownOpen: !!s.openDropdown, closeDropdowns: () => this.setState({ openDropdown: null }),
+      conf: s.conf, yearFrom: s.yearFrom, yearTo: s.yearTo, yearOpts: this.cfg.years,
+      setYearFrom: (e) => { const v = +e.target.value; this.setState({ yearFrom: v, yearTo: Math.max(v, s.yearTo) }); },
+      setYearTo: (e) => { const v = +e.target.value; this.setState({ yearTo: v, yearFrom: Math.min(v, s.yearFrom) }); },
+      seasonSel: s.seasons.length, seasonTot: 3,
+      ttypeSel: s.ttypes.length, ttypeTot: 4,
+      cards, subtitleText, selectionSummary,
+      hasData, noData: !hasData,
+      showLine, showBars, showOccupancy, showRegion, series, bars, legend, yTicks, xLabels,
+      occGridStyle, occCols, occRows, samplingCells, occLegendStyle, regionPreserves,
+      panelTitle, panelSub,
+      downloadCsv, copyLink, copyLabel: s.copied ? 'Copied ✓' : 'Copy view link',
+      primaryBtnStyle: { backgroundColor: this.accent, borderColor: this.accent },
+      resetAll: () => this.resetAll(),
+      showBuildNotes: this.props.showBuildNotes !== false,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

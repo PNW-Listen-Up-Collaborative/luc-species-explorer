@@ -1,0 +1,22 @@
+# Theme the widgets at the source rather than fighting their defaults in CSS.
+# Without this, Streamlit's stock red primary and dark button surfaces leak
+# through (red pills, black segmented controls, dark selectboxes).
+
+[theme]
+base = "light"
+primaryColor = "#138eec"           # project accent override
+backgroundColor = "#f3f2f2"        # Modernist ground
+secondaryBackgroundColor = "#ffffff"
+textColor = "#201e1d"              # ink
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[runner]
+# This app renders everything through explicit st.* calls, so implicit display
+# of bare expressions is only a source of stray output.
+magicEnabled = false
+
+[browser]
+gatherUsageStats = false
