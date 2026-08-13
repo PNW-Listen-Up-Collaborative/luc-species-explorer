@@ -1,8 +1,0 @@
-name: luc-explorer
-channels:
-  - conda-forge
-dependencies:
-  - python=3.11
-  - pandas>=2.0
-  - streamlit>=1.40
-  - plotly>=5.18
