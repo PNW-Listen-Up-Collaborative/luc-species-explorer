@@ -1154,26 +1154,39 @@ def occupancy_panels(
         return panels
 
     # Treatment group divides the columns of one grid by era, matching the
-    # notebook, instead of producing separate panels. But pooling every
-    # selected plot into one grid stops being readable once the selection
-    # spans multiple preserves: the treatment-type list in the header
-    # collapses to "+N more" and the row/column count balloons. Past one
-    # preserve, facet into one dual-period grid per preserve instead, each
-    # with its own plot count and treatment-type summary. Control plots get
-    # their own grid within each preserve too, since control isn't a period on
-    # the same timeline as pretreat/posttreat.
+    # notebook, instead of producing separate panels.
+    #
+    # Which plots share a grid is the question. Pooling them hides the thing
+    # the comparison exists to show: treatment dates differ by plot, so a
+    # pooled pretreat column mixes plots that were treated years apart, and a
+    # plot's own before/after is exactly what a reader wants to line up. So
+    # once the selection is narrowed, every plot gets its own dual-period grid
+    # — control plots included, which then show a single control-coloured run
+    # because they have no other era.
+    #
+    # The unnarrowed case keeps the per-preserve faceting: 40 individual grids
+    # is not a view anyone asked for, and the preserve-level split at least
+    # stays readable.
     if f.compare_by == "treatment_group":
         all_plots = eligible_plots(data, f)
-        preserves = sorted({
-            p for p in data.plots.loc[
-                data.plots["plot"].isin(all_plots), "preserve"
-            ]
-        })
-        if len(preserves) <= 1:
-            return _occupancy_control_and_treatment(
-                data, f, rows, all_codes, all_plots, preserve_label=None
-            )
+        preserve_of = dict(zip(data.plots["plot"], data.plots["preserve"]))
 
+        if len(all_plots) < len(data.all_plots):
+            panels = []
+            for plot in sorted(all_plots):
+                sub = rows[rows["plot"] == plot]
+                panel = _occupancy_by_period(data, f, sub, all_codes,
+                                             plots=[plot])
+                if not panel["columns"]:
+                    continue
+                panel["key"] = plot
+                panel["label"] = (
+                    f"{preserve_of.get(plot, '')} / {plot}".lstrip(" /")
+                    if len(all_plots) > 1 else None)
+                panels.append(panel)
+            return panels
+
+        preserves = sorted({preserve_of.get(p, "") for p in all_plots})
         panels = []
         for i, preserve in enumerate(preserves):
             plot_list = list(data.plots.loc[
