@@ -137,6 +137,41 @@ def _reset() -> None:
 _CONDITIONAL_KEYS = ("occ_granularity",)
 
 
+# Every segmented control, with the values it is allowed to hold. Streamlit's
+# st.segmented_control is deselectable: clicking the active segment clears it
+# and the key becomes None. Nothing downstream expects that — METRIC_LABELS[None]
+# raises KeyError, allowed_periods(None) silently filters everything away — so
+# the value is snapped back before any of it runs.
+def _segmented_options() -> dict:
+    return {
+        "metric": list(core.METRIC_LABELS),
+        "normalize": ["total", "per_day"],
+        "graph_type": ["occupancy", "trends", "species", "region"],
+        "compare_by": ["none", "treatment_group", "treatment_type",
+                       "preserve", "guild"],
+        "treatment_group": list(core.TREATMENT_GROUP_CHOICES),
+        "confidence": list(DATA.meta["thresholds"]),
+        "occ_granularity": list(core.OCC_MODES),
+    }
+
+
+def _coerce_segmented_state() -> None:
+    """
+    Restore any segmented control the user has deselected.
+
+    Snaps back to the previous choice rather than the app default, so an
+    accidental click on the active segment is a no-op rather than a reset.
+    """
+    last = st.session_state.setdefault("_last_segment", {})
+    d = core.default_filters(DATA)
+    for key, valid in _segmented_options().items():
+        current = st.session_state.get(key)
+        if current in valid:
+            last[key] = current
+        else:
+            st.session_state[key] = last.get(key, getattr(d, key))
+
+
 def _persist_conditional_state() -> None:
     """Restore any dropped conditional widget key and keep it from dropping again."""
     d = core.default_filters(DATA)
@@ -175,6 +210,9 @@ def current_filters() -> core.Filters:
 
 _init_state()
 _persist_conditional_state()
+# Runs before any widget is drawn or any filter read, so a deselected control
+# is repaired in the same rerun the deselection happens in.
+_coerce_segmented_state()
 
 
 # ------------------------------------------------------------------ callbacks
