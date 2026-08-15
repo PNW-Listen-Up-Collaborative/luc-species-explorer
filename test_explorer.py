@@ -1427,6 +1427,56 @@ for _k in ("normal", "protan", "deutan", "tritan"):
     # dE 12 is a comfortable margin; the old palette scored 5.1 here.
     check(f"  separable under {_k} vision (worst dE {_worst:.1f})", _worst > 12, True)
 
+print("\n--- occupancy rate by hour matches the Nb3 figure ---")
+# Nb3's clock_hour_occupancy: plot-days detected over plot-days sampled at each
+# clock hour. Deliberately NOT the union-of-dates rule the heatmaps use, which
+# saturates above 90% once plots are pooled and flattens the curve.
+_f_hr = replace(DEFAULTS, graph_type="hourly")
+_curves = core.hourly_curves(DATA, _f_hr, "year")
+
+_h = summary.drop_duplicates(["rec", "species_code"]).copy()
+_h["dt"] = pd.to_datetime(_h["datetime"])
+_h["hday"] = _h["dt"].dt.normalize()
+_h["hour"] = _h["dt"].dt.hour
+
+def _nb_occ(year, hour, sp):
+    y = _h[_h["season_period_year"] == year]
+    eff = y[y["hour"] == hour].drop_duplicates(["plot", "hday"]).shape[0]
+    det = y[(y["hour"] == hour) & (y["species_code"] == sp)
+            & (y["detected@0.3"] == 1)].drop_duplicates(["plot", "hday"]).shape[0]
+    return round(100 * det / eff, 1) if eff else None
+
+for _y, _hr, _sp in ((2022, 5, "SWTH"), (2022, 6, "SWTH"), (2022, 5, "PAWR"),
+                     (2023, 6, "WIWA"), (2025, 4, "DOWO")):
+    _got = float(_curves[(_curves["facet"] == _y) & (_curves["hour"] == _hr)
+                         & (_curves["species_code"] == _sp)]["pct"].iloc[0])
+    check(f"  {_sp} {_y} @ {_hr}:00", _got, _nb_occ(_y, _hr, _sp), tol=0.05)
+
+# Plot-days, not the union: the two differ substantially when pooled.
+_u = _h[(_h["season_period_year"] == 2022) & (_h["hour"] == 5)]
+_u_pct = round(100 * _u.loc[(_u["species_code"] == "SWTH")
+                            & (_u["detected@0.3"] == 1), "hday"].nunique()
+               / _u["hday"].nunique(), 1)
+_got = float(_curves[(_curves["facet"] == 2022) & (_curves["hour"] == 5)
+                     & (_curves["species_code"] == "SWTH")]["pct"].iloc[0])
+check("  and it is plot-days, not union-of-dates", _got != _u_pct, True)
+print(f"        plot-days {_got}%  vs  union {_u_pct}%")
+
+# A line stops where the fieldwork stopped rather than running along zero.
+_hours_2022 = sorted(_curves[_curves["facet"] == 2022]["hour"].unique())
+_want_2022 = sorted(_h.loc[_h["season_period_year"] == 2022, "hour"].unique())
+check("  hours shown are the hours actually recorded",
+      _hours_2022, [int(h) for h in _want_2022])
+check("  so a silent species still draws a zero",
+      bool((_curves["pct"] == 0).any()), True)
+
+# All three facets resolve, and every panel covers the same species set.
+for _fct, _n in (("year", 4), ("season", 3), ("preserve", len(DATA.preserves))):
+    check(f"  {_fct} facet yields {_n} panels",
+          len(core.hourly_facet_values(DATA, _f_hr, _fct)), _n)
+check("  every hour is within 0-100%",
+      bool(_curves["pct"].between(0, 100).all()), True)
+
 print("\n--- colour ramps ---")
 check("ramp interpolation is monotone and bounded",
       core.ramp_color("posttreat", 0.0) == core.RAMPS["posttreat"][0]

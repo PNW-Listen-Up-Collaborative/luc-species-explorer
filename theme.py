@@ -421,6 +421,54 @@ div[data-testid="stButtonGroup"] button {{
   padding: 7px 10px !important;
 }}
 
+/* The graph picker is the one segmented control that wraps, into two
+   deliberate rows: Occupancy, Map and Annual Trends on top,
+   Hourly Trends and Species Trends beneath. Laid out as a grid of six tracks
+   rather than by letting flex wrap where it likes, so the split lands in the
+   same place at every window width. Row one takes 2 tracks per button, row
+   two takes 3, which fills both rows edge to edge.
+
+   Written against two roots because Streamlit has changed how it labels
+   elements: st-key-<key> classes exist on recent versions, the hidden marker
+   div works on all of them. Whichever matches wins; matching both is harmless.
+   Everything is scoped to this one control, so the other segmented controls
+   keep the single-row nowrap styling set above. */
+.luc-graphpick {{ display: none; }}
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"]:has(> button),
+.st-key-graph_type div[data-testid="stButtonGroup"]:has(> button),
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"] > *:has(> button),
+.st-key-graph_type div[data-testid="stButtonGroup"] > *:has(> button) {{
+  display: grid !important;
+  grid-template-columns: repeat(6, 1fr);
+  flex: 1 1 100%;
+  width: 100%;
+  flex-wrap: initial;
+}}
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"]:has(> button) > button:nth-child(-n+3),
+.st-key-graph_type div[data-testid="stButtonGroup"]:has(> button) > button:nth-child(-n+3),
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"] > *:has(> button) > button:nth-child(-n+3),
+.st-key-graph_type div[data-testid="stButtonGroup"] > *:has(> button) > button:nth-child(-n+3) {{ grid-column: span 2; }}
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"]:has(> button) > button:nth-child(n+4),
+.st-key-graph_type div[data-testid="stButtonGroup"]:has(> button) > button:nth-child(n+4),
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"] > *:has(> button) > button:nth-child(n+4),
+.st-key-graph_type div[data-testid="stButtonGroup"] > *:has(> button) > button:nth-child(n+4) {{ grid-column: span 3; }}
+
+/* Buttons fill their track, and borders overlap between neighbours so the
+   group still reads as one control rather than five separate boxes. Children
+   3 and 5 end a row, so they keep their own right edge. */
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"]:has(> button) > button,
+.st-key-graph_type div[data-testid="stButtonGroup"]:has(> button) > button,
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"] > *:has(> button) > button,
+.st-key-graph_type div[data-testid="stButtonGroup"] > *:has(> button) > button {{ width: 100% !important; margin: 0 -1px -1px 0 !important; }}
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"]:has(> button) > button:nth-child(3),
+.st-key-graph_type div[data-testid="stButtonGroup"]:has(> button) > button:nth-child(3),
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"] > *:has(> button) > button:nth-child(3),
+.st-key-graph_type div[data-testid="stButtonGroup"] > *:has(> button) > button:nth-child(3),
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"]:has(> button) > button:nth-child(5),
+.st-key-graph_type div[data-testid="stButtonGroup"]:has(> button) > button:nth-child(5),
+:is(div[data-testid="stElementContainer"], div.element-container):has(.luc-graphpick) + :is(div[data-testid="stElementContainer"], div.element-container) div[data-testid="stButtonGroup"] > *:has(> button) > button:nth-child(5),
+.st-key-graph_type div[data-testid="stButtonGroup"] > *:has(> button) > button:nth-child(5) {{ margin-right: 0 !important; }}
+
 /* ...but pill groups (Season, Treatment type) stay as separate chips, per the
    design. Both widgets share stButtonGroup, so distinguish on button type. */
 /* Pills are independent chips, so they may wrap onto further rows. */

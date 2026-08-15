@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 import explorer_core as core
@@ -120,6 +121,7 @@ def _init_state() -> None:
         region_bucket=d.region_bucket,
         region_hours=list(d.region_hours),
         region_solar=list(d.region_solar),
+        hour_facet=d.hour_facet,
     )
 
 
@@ -135,7 +137,11 @@ def _reset() -> None:
 # 'Daily %/Hourly %' — which only renders on the Occupancy view — vanished as
 # soon as another graph type was selected, and the next run raised
 # AttributeError reading it back.
-_CONDITIONAL_KEYS = ("occ_granularity",)
+# 'hour_facet' is the same case: it only exists on the Hourly Trends view, so
+# it was dropped every time another graph was selected and came back
+# unselected — the chart defaulted to Year while none of the three segments
+# was lit.
+_CONDITIONAL_KEYS = ("occ_granularity", "hour_facet")
 
 
 # Every segmented control, with the values it is allowed to hold. Streamlit's
@@ -147,11 +153,12 @@ def _segmented_options() -> dict:
     return {
         "metric": list(core.METRIC_LABELS),
         "normalize": ["total", "per_day"],
-        "graph_type": ["occupancy", "region", "trends", "species"],
+        "graph_type": ["occupancy", "region", "trends", "hourly", "species"],
         "compare_by": ["none", "treatment_group", "treatment_type",
                        "preserve", "guild"],
         "confidence": list(DATA.meta["thresholds"]),
         "occ_granularity": list(core.OCC_MODES),
+        "hour_facet": list(core.HOUR_FACETS),
     }
 
 
@@ -205,6 +212,7 @@ def current_filters() -> core.Filters:
         region_bucket=s.region_bucket,
         region_hours=tuple(s.region_hours),
         region_solar=tuple(s.region_solar),
+        hour_facet=s.hour_facet,
     )
 
 
@@ -673,7 +681,7 @@ COMPARE_LABELS = {
 
 # Narrower than the page: the card holds a four-option selector and two
 # dropdowns, and stretching it to full width left most of it empty.
-_chart_col, _chart_pad = st.columns([1.9, 2.1])
+_chart_col, _chart_pad = st.columns([2.0, 2.0])
 with _chart_col, st.container(border=True):
     card_head("Graphs")
     # Occupancy leads: it is the effort-corrected view and the primary result.
@@ -682,18 +690,33 @@ with _chart_col, st.container(border=True):
     # time) was here too — with only eight target species it sat pinned at 7-8
     # in every season, drawing a flat line the Species Richness card already
     # gives as one number.
+    # Marker for the two-row grid in theme.py: the two whole-dataset views on
+    # the first row, the three trend views on the second.
+    st.markdown('<div class="luc-graphpick"></div>', unsafe_allow_html=True)
     st.segmented_control(
         "Graph type",
-        ["occupancy", "region", "trends", "species"],
+        ["occupancy", "region", "trends", "hourly", "species"],
         key="graph_type",
         label_visibility="collapsed",
         # The value stays 'region' so saved view links and exports keep
         # working; only the label reads 'Map'.
-        format_func=lambda v: "Map" if v == "region" else v.capitalize(),
+        # 'Trends' alone did not say what varied; each of the three now
+        # names its axis.
+        format_func=lambda v: {
+            "occupancy": "Occupancy", "region": "Map",
+            "trends": "Annual Trends", "hourly": "Hourly Trends",
+            "species": "Species Trends",
+        }[v],
     )
 
     card_gap()
-    g_compare, g_params = st.columns([1, 1.35], vertical_alignment="bottom")
+    # 'Compare by' is a narrow control in a wide column, which left a gap
+    # between it and Parameters. The trailing spacer column absorbs the slack
+    # instead, so the two sit together at the left. Both popover buttons are
+    # width:max-content, so shrinking their columns moves them without
+    # squeezing the labels.
+    g_compare, g_params, _ = st.columns([1, 2.3, 1.4],
+                                        vertical_alignment="bottom")
     with g_compare:
         microlabel("Compare by")
         choice_popover("Compare by", "compare_by", list(COMPARE_LABELS),
@@ -799,6 +822,75 @@ def bar_chart(bars: pd.DataFrame, decimals: int = 0, unit: str = "detections") -
     fig.update_layout(**theme.plotly_layout())
     fig.update_yaxes(title=None, rangemode="tozero")
     fig.update_traces(width=0.56)
+    return fig
+
+
+def hourly_chart(curves: pd.DataFrame, facets: list, facet_label: str,
+                 codes: list[str]) -> go.Figure:
+    """
+    One small-multiple panel per facet value, a line per species.
+
+    Every panel carries its own hour labels, but all panels share one hour
+    range and one y-scale: the point is comparing the shape of the dawn curve
+    between years or preserves, and letting each panel autoscale would stretch
+    a short recording window across the same width as a long one, and make a
+    quiet year look like a busy one.
+    """
+    n = len(facets)
+    ncols = 1 if n == 1 else (2 if n <= 4 else 3)
+    nrows = math.ceil(n / ncols)
+    fig = make_subplots(
+        rows=nrows, cols=ncols, shared_xaxes=False, shared_yaxes=True,
+        subplot_titles=[str(v) for v in facets],
+        vertical_spacing=0.13 if nrows > 2 else 0.16,
+        horizontal_spacing=0.06,
+    )
+    rank_colors = core.species_colors_by_rank(DATA)
+
+    for i, value in enumerate(facets):
+        r, c = divmod(i, ncols)
+        sub = curves[curves["facet"] == value]
+        for code in codes:
+            line = sub[sub["species_code"] == code].sort_values("hour")
+            if line.empty:
+                continue
+            fig.add_trace(
+                go.Scatter(
+                    x=line["hour"], y=line["pct"],
+                    mode="lines+markers", name=code,
+                    legendgroup=code,
+                    showlegend=(i == 0),   # one legend entry per species
+                    line=dict(color=rank_colors.get(code, core.ACCENT), width=2),
+                    marker=dict(size=5),
+                    customdata=line[["days_detected", "days_sampled"]],
+                    hovertemplate=(
+                        f"<b>{code}</b> · {value}<br>%{{x}}:00 — %{{y:.1f}}%"
+                        "<br>%{customdata[0]:,.0f} of %{customdata[1]:,.0f} "
+                        "plot-days<extra></extra>"
+                    ),
+                ),
+                row=r + 1, col=c + 1,
+            )
+
+    fig.update_layout(**theme.plotly_layout())
+    fig.update_layout(
+        height=270 * nrows + 90,
+        legend=dict(orientation="h", yanchor="bottom", y=1.04,
+                    xanchor="left", x=0, font=dict(size=11)),
+        margin=dict(l=10, r=10, t=70, b=40),
+    )
+    hours = DATA.hours
+    # Range is pinned rather than left to autoscale: shared_xaxes is off so
+    # each panel prints its own labels, which also unlinks the ranges, and a
+    # preserve recorded over fewer hours would otherwise be drawn wider.
+    shown = [h for h in hours if h in set(curves["hour"])] or list(hours)
+    fig.update_xaxes(tickmode="array", tickvals=hours,
+                     ticktext=[f"{h}:00" for h in hours],
+                     range=[min(shown) - 0.4, max(shown) + 0.4],
+                     title=None, showgrid=True)
+    fig.update_yaxes(range=[0, 105], ticksuffix="%", title=None)
+    for a in fig.layout.annotations:      # subplot titles
+        a.font.size = 13
     return fig
 
 
@@ -1148,7 +1240,19 @@ with st.container(border=True):
             unsafe_allow_html=True,
         )
     with head_b:
-        if f.graph_type == "occupancy":
+        if f.graph_type == "hourly":
+            st.segmented_control(
+                "Facet",
+                list(core.HOUR_FACETS),
+                key="hour_facet",
+                label_visibility="collapsed",
+                format_func=lambda v: core.HOUR_FACETS[v],
+                help="Which grid the hours are split into. One panel per year, "
+                     "per season, or per preserve.",
+            )
+            f = current_filters()
+            title, sub = core.panel_copy(DATA, f)
+        elif f.graph_type == "occupancy":
             st.segmented_control(
                 "Granularity",
                 core.OCC_MODES,
@@ -1171,6 +1275,26 @@ with st.container(border=True):
             'widen the selection or lower the confidence threshold.</div>',
             unsafe_allow_html=True,
         )
+    elif f.graph_type == "hourly":
+        curves = core.hourly_curves(DATA, f, f.hour_facet)
+        facets = core.hourly_facet_values(DATA, f, f.hour_facet)
+        codes = [c for c in core.species_rank(DATA) if c in set(f.species)]
+        if curves.empty or not facets:
+            st.markdown('<div class="luc-empty">No recordings match the '
+                        'current filters.</div>', unsafe_allow_html=True)
+        else:
+            st.plotly_chart(hourly_chart(curves, facets, f.hour_facet, codes),
+                            use_container_width=True,
+                            config={"displayModeBar": False})
+            st.caption(
+                "Plot-days detected ÷ plot-days sampled at each clock hour, "
+                "where a plot-day is one recorder on one date. Deliberately "
+                "not the union-of-dates rule the Occupancy heatmap uses: "
+                "pooled over many plots that sits above 90% for common "
+                "species and the daily rhythm flattens out. Years follow the "
+                "season-period convention used by the Year range filter, so "
+                "winter is dated to the year it ends in."
+            )
     elif f.graph_type == "trends":
         series, buckets = core.build_series(DATA, f, rows, "detections")
         st.markdown(

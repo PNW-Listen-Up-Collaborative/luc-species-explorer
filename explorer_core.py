@@ -295,6 +295,8 @@ class Filters:
     # sliders narrow these without disturbing the other views' filters.
     region_bucket: str = ""
     region_hours: tuple[int, ...] = ()
+    # Which grid the hourly activity curve is faceted into.
+    hour_facet: str = "year"
     # Hours relative to sunrise, for the map's time scrubber. Empty means all.
     region_solar: tuple[int, ...] = ()
 
@@ -1429,6 +1431,88 @@ def _dispersal_radius_m(plots: pd.DataFrame) -> float:
     return max(5.0, min(25.0, 0.25 * best))
 
 
+# The hourly activity curve's facets, matching the notebook's three figures.
+HOUR_FACETS = {"year": "Year", "season": "Season", "preserve": "Preserve"}
+
+
+def hourly_curves(data: Dataset, f: Filters, facet: str = "year") -> pd.DataFrame:
+    """
+    Species occupancy across clock hours, faceted by year, season or preserve.
+
+    Deliberately plot-days rather than the union of dates the heatmaps use:
+    plot-days detected over plot-days sampled at that hour, which is the
+    definition in Nb3's `clock_hour_occupancy`. Union would answer 'was it
+    heard anywhere at 5am', and pooled over 40 plots that is above 90% for
+    every common species — the curve flattens and the daily rhythm this chart
+    exists to show disappears. Plot-days asks 'at a typical recorder, how often
+    at 5am', which does not saturate.
+
+    Returns one row per (facet, species, hour) for every hour that was
+    *sampled* in that facet — including hours where the species was silent, so
+    a real zero draws a point rather than a gap. Hours with no recordings at
+    all are omitted, which is why 2022 starts at 5:00 while 2023 starts at
+    4:00: a line should stop where the fieldwork did, not run along zero.
+    """
+    plots = eligible_plots(data, f)
+    buckets = visible_buckets(data, f)
+    season_of = {b["bucket"]: b["season"] for b in data.meta["buckets"]}
+    year_of = {b["bucket"]: b["season_period_year"] for b in data.meta["buckets"]}
+    preserve_of = dict(zip(data.plots["plot"], data.plots["preserve"]))
+
+    def label(df: pd.DataFrame) -> pd.Series:
+        if facet == "season":
+            return df["bucket"].map(season_of)
+        if facet == "preserve":
+            return df["plot"].map(preserve_of)
+        return df["bucket"].map(year_of)
+
+    eff = _hour_effort_rows(data, f, plots, buckets, data.hours)
+    det = _hour_detection_rows(data, f, plots, buckets, data.hours)
+    codes = [c for c in data.species_codes if c in set(f.species)]
+    if eff.empty:
+        return pd.DataFrame(columns=["facet", "species_code", "hour",
+                                     "days_detected", "days_sampled", "pct"])
+
+    # Summed across plots and buckets: one (plot, date, hour) slot counts once,
+    # and a plot recording on more dates carries proportionally more weight.
+    eff = eff.assign(facet=label(eff))
+    sampled = eff.groupby(["facet", "hour"])["days_sampled"].sum()
+
+    detected = (det.assign(facet=label(det))
+                .groupby(["facet", "species_code", "hour"])["days_detected"].sum()
+                if not det.empty else pd.Series(dtype=float))
+
+    recs = []
+    for (fv, hour), n in sampled.items():
+        if n <= 0:
+            continue
+        for code in codes:
+            d = float(detected.get((fv, code, hour), 0.0))
+            recs.append({
+                "facet": fv, "species_code": code, "hour": int(hour),
+                "days_detected": d, "days_sampled": float(n),
+                "pct": round(100 * d / n, 1),
+            })
+    out = pd.DataFrame(recs)
+    if out.empty:
+        return out
+    # Season keeps its calendar order; year and preserve sort naturally.
+    if facet == "season":
+        order = {s: i for i, s in enumerate(data.seasons)}
+        out["_o"] = out["facet"].map(order)
+    else:
+        out["_o"] = out["facet"]
+    return out.sort_values(["_o", "species_code", "hour"]).drop(columns="_o")
+
+
+def hourly_facet_values(data: Dataset, f: Filters, facet: str = "year") -> list:
+    """The facet values present, in the order their panels should appear."""
+    curves = hourly_curves(data, f, facet)
+    if curves.empty:
+        return []
+    return list(dict.fromkeys(curves["facet"]))
+
+
 def region_sites(data: Dataset, f: Filters) -> pd.DataFrame:
     """
     Every selected plot's recorder position, regardless of the map's slicers.
@@ -2188,6 +2272,9 @@ def panel_copy(data: Dataset, f: Filters) -> tuple[str, str]:
                     "Share of recorded hours a species was detected")
         return ("Daily Occupancy (%)",
                 "Share of sampling days a species was detected")
+    if f.graph_type == "hourly":
+        return (f"Occupancy Rate By Hour ({HOUR_FACETS.get(f.hour_facet, '')})",
+                "Plot-days detected ÷ plot-days sampled, at each clock hour")
     if f.graph_type == "region":
         return ("Species Presence By Plot",
                 "Occupancy per species at each recorder")
