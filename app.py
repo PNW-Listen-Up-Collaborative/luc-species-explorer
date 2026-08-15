@@ -532,9 +532,8 @@ st.markdown(
 # grouping that was not there, since each filter is independent. The controls
 # now sit in one even row and are separated by whitespace alone.
 #
-# This block chooses *which data* to include. 'Select Parameters', below the
-# chart controls, chooses *how it is measured*.
-section_head("Filter Data")
+# This block chooses *which data* to include. 'Select Parameters', in the chart
+# card beside it, chooses *how it is measured*.
 
 # Ordered outward from the coarsest cut to the finest: when, then where, then
 # what, then what was done to it. Season sits with Year range because both
@@ -553,22 +552,44 @@ def card_gap() -> None:
     st.markdown('<div class="luc-cardgap"></div>', unsafe_allow_html=True)
 
 
-c_when, c_where, c_what = st.columns(3, vertical_alignment="top")
+# The 'By' prefix is what separates these from the Treatments filter: these
+# keep every row and split it into panels, that one drops rows. Same nouns,
+# opposite operations, so the verb has to carry the difference.
+COMPARE_LABELS = {
+    "none": "None", "treatment_group": "By treatment group",
+    "treatment_type": "By treatment activity", "preserve": "By preserve",
+    "guild": "By forage guild",
+}
 
-with c_when:
-    with st.container(border=True):
-        card_head("Time")
+# Filters in one card, chart controls in a second beside it. Three filter cards
+# across the full width left the row short and the page empty beneath it, and
+# pushed the chart itself below the fold; paired columns use the height the
+# filters already needed. The filter column is wider because it holds six
+# controls to the chart card's three.
+_filters_col, _chart_col = st.columns([1.35, 1], vertical_alignment="top")
+
+with _filters_col:
+    section_head("Filter Data")
+with _filters_col, st.container(border=True):
+    # Ordered outward from the coarsest cut to the finest: when, then where,
+    # then what, then what was done to it. Each group keeps its own heading and
+    # rule inside the shared card, so merging the cards did not merge the
+    # groups. The two controls in each group sit side by side rather than
+    # stacked, which is what keeps this card level with the chart card.
+    card_head("Time")
+    t_year, t_season = st.columns([1.3, 1])
+    with t_year:
         microlabel("Year range")
         # A trailing spacer, so the two four-character selects sit together at
-        # the left rather than being spread across the card.
-        y_from, y_to, _y_pad = st.columns([1, 1, 0.6])
+        # the left rather than being spread across the column.
+        y_from, y_to, _y_pad = st.columns([1, 1, 0.3])
         with y_from:
             st.selectbox("from", DATA.years, key="year_from",
                          on_change=_set_year_from, label_visibility="collapsed")
         with y_to:
             st.selectbox("to", DATA.years, key="year_to",
                          on_change=_set_year_to, label_visibility="collapsed")
-        card_gap()
+    with t_season:
         microlabel("Season")
         checklist_popover(
             "Season",
@@ -580,9 +601,10 @@ with c_when:
             lambda: _set_seasons([]),
         )
 
-with c_where:
-    with st.container(border=True):
-        card_head("Location")
+    card_gap()
+    card_head("Location")
+    l_pres, l_plot = st.columns(2)
+    with l_pres:
         microlabel("Preserve")
         checklist_popover(
             "Preserve",
@@ -593,9 +615,10 @@ with c_where:
             lambda: _set_preserves(list(DATA.preserves), list(DATA.all_plots)),
             lambda: _set_preserves([], []),
         )
-        card_gap()
+    with l_plot:
         microlabel("Plot")
-        avail = DATA.plots[DATA.plots["preserve"].isin(st.session_state.preserves)]
+        avail = DATA.plots[
+            DATA.plots["preserve"].isin(st.session_state.preserves)]
         checklist_popover(
             "Plot",
             [(r.plot, f"{r.plot} · {r.preserve} · {r.treatment_group}")
@@ -607,25 +630,26 @@ with c_where:
             lambda: _set_plots([]),
         )
 
-with c_what:
-    with st.container(border=True):
-        card_head("Species & Treatments")
+    card_gap()
+    card_head("Species & Treatments")
+    w_species, w_treat = st.columns([1, 1.35])
+    with w_species:
         microlabel("Species")
         checklist_popover(
             "Species",
             # Scientific name italicised, per convention. st.checkbox renders
             # Markdown in its label, so the asterisks become italics.
-            [(s["code"],
-              f"{s['code']}: {s['name']}"
-              + (f", *{s['scientific']}*" if s.get("scientific") else ""))
-             for s in DATA.species],
+            [(sp["code"],
+              f"{sp['code']}: {sp['name']}"
+              + (f", *{sp['scientific']}*" if sp.get("scientific") else ""))
+             for sp in DATA.species],
             st.session_state.species,
             "sp",
             _toggle_species,
             lambda: _set_species(list(DATA.species_codes)),
             lambda: _set_species([]),
         )
-        card_gap()
+    with w_treat:
         # One control, two sections. These drop rows from the data; the
         # similarly-named Compare By options keep every row and split it into
         # panels instead, which is why those read 'By treatment group'.
@@ -659,29 +683,13 @@ with c_what:
             ],
         )
 
+
 # ------------------------------------------------------- graph type / compare
 
-# No rule between the two sections: the cards already draw their own edges, so
-# a divider on top of them was a third boundary doing no work, and its margins
-# cost more height than the line itself.
-#
 # One card holding the whole chart definition, in the order you work through
-# it: which chart, how to split it, how to measure it. Two side-by-side cards
-# left the shorter one hanging, and the three controls are one decision anyway.
-section_head("Chart")
-
-# The 'By' prefix is what separates these from the Treatments filter above:
-# these keep every row and split it into panels, that one drops rows. Same
-# nouns, opposite operations, so the verb has to carry the difference.
-COMPARE_LABELS = {
-    "none": "None", "treatment_group": "By treatment group",
-    "treatment_type": "By treatment activity", "preserve": "By preserve",
-    "guild": "By forage guild",
-}
-
-# Narrower than the page: the card holds a four-option selector and two
-# dropdowns, and stretching it to full width left most of it empty.
-_chart_col, _chart_pad = st.columns([2.0, 2.0])
+# it: which chart, how to split it, how to measure it.
+with _chart_col:
+    section_head("Chart")
 with _chart_col, st.container(border=True):
     card_head("Graphs")
     # Occupancy leads: it is the effort-corrected view and the primary result.
