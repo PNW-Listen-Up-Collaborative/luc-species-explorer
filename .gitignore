@@ -24,3 +24,12 @@ __pycache__/
 # clone without the multi-gigabyte source CSVs. It is also the exact cache the
 # verification suite was last run against, so committing it keeps results
 # reproducible.
+
+# Conda spec, kept out of the deploy repo on purpose. Streamlit Cloud prefers
+# environment.yml over requirements.txt when both are present, and then builds
+# a conda env that has repeatedly come up short a package — the plotly
+# ModuleNotFoundError on import. requirements.txt is the file Cloud should be
+# reading. The conda spec is still usable locally under its .local name:
+#   conda env create -f environment.local.yml
+environment.yml
+environment.local.yml
