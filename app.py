@@ -110,7 +110,7 @@ def _init_state() -> None:
         species=list(d.species),
         preserves=list(d.preserves),
         plots=list(d.plots),
-        treatment_group=d.treatment_group,
+        treatment_periods=list(d.treatment_periods),
         treatment_components=list(d.treatment_components),
         graph_type=d.graph_type,
         compare_by=d.compare_by,
@@ -127,6 +127,7 @@ def _reset() -> None:
     for k in list(st.session_state.keys()):
         del st.session_state[k]
     _init_state()
+
 
 
 # Widget keys whose widget is not drawn on every run. Streamlit discards a
@@ -146,10 +147,9 @@ def _segmented_options() -> dict:
     return {
         "metric": list(core.METRIC_LABELS),
         "normalize": ["total", "per_day"],
-        "graph_type": ["occupancy", "trends", "species", "region"],
+        "graph_type": ["occupancy", "region", "trends", "species"],
         "compare_by": ["none", "treatment_group", "treatment_type",
                        "preserve", "guild"],
-        "treatment_group": list(core.TREATMENT_GROUP_CHOICES),
         "confidence": list(DATA.meta["thresholds"]),
         "occ_granularity": list(core.OCC_MODES),
     }
@@ -195,7 +195,7 @@ def current_filters() -> core.Filters:
         species=tuple(s.species),
         preserves=tuple(s.preserves),
         plots=tuple(s.plots),
-        treatment_group=s.treatment_group,
+        treatment_periods=tuple(s.treatment_periods),
         treatment_components=tuple(s.treatment_components),
         graph_type=s.graph_type,
         compare_by=s.compare_by,
@@ -324,6 +324,18 @@ def _solar_label(b: int) -> str:
     return f"+{b}h → +{b + 1}h"
 
 
+def _toggle_period(period: str) -> None:
+    st.session_state.treatment_periods = _apply_toggle(
+        st.session_state.treatment_periods, period,
+        st.session_state[f"per_{period}"], core.TREATMENT_GROUP_CHOICES,
+    )
+
+
+def _set_periods(selected: list[str]) -> None:
+    _sync_checkbox_keys("per", core.TREATMENT_GROUP_CHOICES, selected)
+    st.session_state.treatment_periods = selected
+
+
 def _toggle_ttype(comp: str) -> None:
     st.session_state.treatment_components = _apply_toggle(
         st.session_state.treatment_components, comp,
@@ -355,14 +367,20 @@ def checklist_popover(
     select_all,
     select_none,
 ) -> None:
-    """Button that opens a checkbox popover — the design's pattern for long lists."""
+    """
+    Button that opens a checkbox popover — the design's pattern for long lists.
+
+    The trigger sizes to its own text rather than filling its column, so a
+    short label stays a short button. The two bulk actions are stacked rather
+    than side by side, which keeps the popover as narrow as its longest
+    checkbox instead of as wide as two buttons.
+    """
     trigger = f"{label} ({len(selected)}/{len(options)})"
-    with st.popover(trigger, use_container_width=True):
-        a, b = st.columns(2)
-        a.button("All", key=f"{key_prefix}__all", on_click=select_all,
-                 use_container_width=True)
-        b.button("None", key=f"{key_prefix}__none", on_click=select_none,
-                 use_container_width=True)
+    with st.popover(trigger, use_container_width=False):
+        st.button("Select All", key=f"{key_prefix}__all", on_click=select_all,
+                  use_container_width=True)
+        st.button("Deselect All", key=f"{key_prefix}__none", on_click=select_none,
+                  use_container_width=True)
         st.markdown('<div class="luc-rule" style="margin:8px 0"></div>',
                     unsafe_allow_html=True)
         for value, text in options:
@@ -370,6 +388,61 @@ def checklist_popover(
             if key not in st.session_state:
                 st.session_state[key] = value in selected
             st.checkbox(text, key=key, on_change=on_toggle, args=(value,))
+
+
+def _checklist_body(options: list[tuple[str, str]], selected: list[str],
+                    key_prefix: str, on_toggle, select_all, select_none) -> None:
+    """The bulk actions and checkboxes of a checklist, without the popover."""
+    st.button("Select All", key=f"{key_prefix}__all", on_click=select_all,
+              use_container_width=True)
+    st.button("Deselect All", key=f"{key_prefix}__none", on_click=select_none,
+              use_container_width=True)
+    for value, text in options:
+        key = f"{key_prefix}_{value}"
+        if key not in st.session_state:
+            st.session_state[key] = value in selected
+        st.checkbox(text, key=key, on_change=on_toggle, args=(value,))
+
+
+def dual_checklist_popover(trigger: str, sections: list[dict]) -> None:
+    """
+    One popover holding two independent checklists under their own headings.
+
+    Treatment group and treatment activity describe the same thing — what was
+    done to a plot and when — so they belong behind one control rather than two
+    adjacent ones that look like alternatives to each other.
+    """
+    with st.popover(trigger, use_container_width=False):
+        for i, sec in enumerate(sections):
+            if i:
+                st.markdown('<div class="luc-rule" style="margin:10px 0"></div>',
+                            unsafe_allow_html=True)
+            microlabel(sec["label"])
+            _checklist_body(sec["options"], sec["selected"], sec["prefix"],
+                            sec["on_toggle"], sec["select_all"],
+                            sec["select_none"])
+
+
+def choice_popover(label: str, key: str, options: list,
+                   format_func=str) -> None:
+    """
+    Single-choice equivalent of checklist_popover.
+
+    Uses a radio rather than a segmented control: a radio cannot be
+    deselected, so it cannot leave the key as None the way the segmented
+    controls did.
+    """
+    current = st.session_state.get(key, options[0])
+    # Just the value: the microlabel above already says what it is, and
+    # repeating it made the trigger wider than its column.
+    with st.popover(format_func(current), use_container_width=False):
+        st.radio(label, options, key=key, format_func=format_func,
+                 label_visibility="collapsed")
+
+
+def section_head(title: str) -> None:
+    st.markdown(f'<div class="luc-section luc-section-lead '
+                f'luc-section-top">{title}</div>', unsafe_allow_html=True)
 
 
 def microlabel(text: str, slider: bool = False) -> None:
@@ -392,11 +465,20 @@ kpis = core.compute_kpis(DATA, f, rows)
 #   'Download CSV'    the export's shape is still unsettled, so it is out until
 #                     the schema is agreed. core.export_csv and its tests are
 #                     intact; only the button is gone.
-st.markdown(
-    f'<div class="luc-title">LUC Species Detection Explorer</div>'
-    f'<div class="luc-subtitle">{core.subtitle_text(DATA, f)}</div>',
-    unsafe_allow_html=True,
-)
+head_l, head_r = st.columns([7, 1.1], vertical_alignment="center")
+with head_l:
+    st.markdown(
+        f'<div class="luc-title">LUC Species Detection Explorer</div>'
+        f'<div class="luc-subtitle">{core.subtitle_text(DATA, f)}</div>',
+        unsafe_allow_html=True,
+    )
+with head_r:
+    # One Reset for the whole page, on a row that already exists. Two scoped
+    # resets sat on the section headings and could not be placed next to the
+    # words reliably — Streamlit columns are proportional, so the gap grew with
+    # the window.
+    st.button("Reset", on_click=_reset, use_container_width=True,
+              help="Restores every filter and chart setting to its default.")
 
 st.markdown('<div class="luc-rule"></div>', unsafe_allow_html=True)
 
@@ -438,201 +520,224 @@ st.markdown(
 
 # -------------------------------------------------------------- filter toolbar
 
-def vrule(col) -> None:
-    with col:
-        st.markdown('<div class="luc-vrule"></div>', unsafe_allow_html=True)
+# Vertical rules between every control were reported as confusing: they implied
+# grouping that was not there, since each filter is independent. The controls
+# now sit in one even row and are separated by whitespace alone.
+#
+# This block chooses *which data* to include. 'Select Parameters', below the
+# chart controls, chooses *how it is measured*.
+section_head("Filter Data")
+
+# Ordered outward from the coarsest cut to the finest: when, then where, then
+# what, then what was done to it. Season sits with Year range because both
+# narrow time; Treatment group and activity share one control because both
+# describe the treatment, and separating them made them look like alternatives.
+# Three cards side by side, grouped by what each filter narrows: when, where,
+# and what. Boxing them stops six controls reading as one undifferentiated
+# strip, and each card is wide enough that no label gets clipped.
+def card_head(title: str) -> None:
+    st.markdown(f'<div class="luc-filtercard"></div>'
+                f'<div class="luc-cardhead">{title}</div>',
+                unsafe_allow_html=True)
 
 
-st.markdown('<div class="luc-section luc-section-top">Select Parameters</div>',
-            unsafe_allow_html=True)
+def card_gap() -> None:
+    st.markdown('<div class="luc-cardgap"></div>', unsafe_allow_html=True)
 
-# A spacer column between every control, so each one reads as its own section.
-# Year range is the exception: its two selectboxes are one control.
-_D = 0.12
-r1 = st.columns([1.7, _D, 1.0, 1.0, _D, 2.0, _D, 1.6, _D, 1.6],
-                vertical_alignment="bottom")
 
-with r1[0]:
-    microlabel("Species code")
-    checklist_popover(
-        "Species",
-        [(s["code"], f"{s['code']}: {s['name']}") for s in DATA.species],
-        st.session_state.species,
-        "sp",
-        _toggle_species,
-        lambda: _set_species(list(DATA.species_codes)),
-        lambda: _set_species([]),
-    )
+c_when, c_where, c_what = st.columns(3, vertical_alignment="top")
 
-vrule(r1[1])
+with c_when:
+    with st.container(border=True):
+        card_head("Time")
+        microlabel("Year range")
+        # A trailing spacer, so the two four-character selects sit together at
+        # the left rather than being spread across the card.
+        y_from, y_to, _y_pad = st.columns([1, 1, 0.6])
+        with y_from:
+            st.selectbox("from", DATA.years, key="year_from",
+                         on_change=_set_year_from, label_visibility="collapsed")
+        with y_to:
+            st.selectbox("to", DATA.years, key="year_to",
+                         on_change=_set_year_to, label_visibility="collapsed")
+        card_gap()
+        microlabel("Season")
+        checklist_popover(
+            "Season",
+            [(s, s) for s in DATA.seasons],
+            st.session_state.seasons,
+            "seas",
+            _toggle_season,
+            lambda: _set_seasons(list(DATA.seasons)),
+            lambda: _set_seasons([]),
+        )
 
-with r1[2]:
-    microlabel("Year range")
-    st.selectbox("from", DATA.years, key="year_from", on_change=_set_year_from,
-                 label_visibility="collapsed")
-with r1[3]:
-    microlabel("&nbsp;")
-    st.selectbox("to", DATA.years, key="year_to", on_change=_set_year_to,
-                 label_visibility="collapsed")
+with c_where:
+    with st.container(border=True):
+        card_head("Location")
+        microlabel("Preserve")
+        checklist_popover(
+            "Preserve",
+            [(p, p) for p in DATA.preserves],
+            st.session_state.preserves,
+            "pres",
+            _toggle_preserve,
+            lambda: _set_preserves(list(DATA.preserves), list(DATA.all_plots)),
+            lambda: _set_preserves([], []),
+        )
+        card_gap()
+        microlabel("Plot")
+        avail = DATA.plots[DATA.plots["preserve"].isin(st.session_state.preserves)]
+        checklist_popover(
+            "Plot",
+            [(r.plot, f"{r.plot} · {r.preserve} · {r.treatment_group}")
+             for r in avail.itertuples()],
+            st.session_state.plots,
+            "plot",
+            _toggle_plot,
+            lambda: _set_plots(list(avail["plot"])),
+            lambda: _set_plots([]),
+        )
 
-vrule(r1[4])
-
-with r1[5]:
-    microlabel("Season")
-    checklist_popover(
-        "Season",
-        [(s, s) for s in DATA.seasons],
-        st.session_state.seasons,
-        "seas",
-        _toggle_season,
-        lambda: _set_seasons(list(DATA.seasons)),
-        lambda: _set_seasons([]),
-    )
-
-vrule(r1[6])
-
-with r1[7]:
-    microlabel("Preserve")
-    checklist_popover(
-        "Preserve",
-        [(p, p) for p in DATA.preserves],
-        st.session_state.preserves,
-        "pres",
-        _toggle_preserve,
-        lambda: _set_preserves(list(DATA.preserves), list(DATA.all_plots)),
-        lambda: _set_preserves([], []),
-    )
-
-vrule(r1[8])
-
-with r1[9]:
-    microlabel("Plot")
-    avail = DATA.plots[DATA.plots["preserve"].isin(st.session_state.preserves)]
-    checklist_popover(
-        "Plot",
-        [(r.plot, f"{r.plot} · {r.preserve} · {r.treatment_group}")
-         for r in avail.itertuples()],
-        st.session_state.plots,
-        "plot",
-        _toggle_plot,
-        lambda: _set_plots(list(avail["plot"])),
-        lambda: _set_plots([]),
-    )
-
-# Treatment group needs room for four segments; confidence for four.
-r2 = st.columns([3.0, _D, 1.9, _D, 1.9, _D, 1.0], vertical_alignment="bottom")
-
-with r2[0]:
-    microlabel("Treatment group")
-    st.segmented_control(
-        "Treatment group",
-        # 'treat' (pretreat + posttreat pooled) was here too. It pooled the two
-        # eras it is the whole point of this study to tell apart, and 'all'
-        # already covers "don't filter", so it earned no place.
-        core.TREATMENT_GROUP_CHOICES,
-        key="treatment_group",
-        label_visibility="collapsed",
-    )
-vrule(r2[1])
-with r2[2]:
-    microlabel("Treatment type")
-    checklist_popover(
-        "Treat. type",
-        [(c, c) for c in DATA.treatment_components],
-        st.session_state.treatment_components,
-        "tt",
-        _toggle_ttype,
-        lambda: _set_ttypes(list(DATA.treatment_components)),
-        lambda: _set_ttypes([]),
-    )
-vrule(r2[3])
-with r2[4]:
-    microlabel("Confidence")
-    st.segmented_control(
-        "Confidence",
-        DATA.meta["thresholds"],
-        key="confidence",
-        label_visibility="collapsed",
-        format_func=lambda v: f"{v:.1f}",
-    )
-vrule(r2[5])
-with r2[6]:
-    microlabel("&nbsp;")
-    st.button("Reset", on_click=_reset, use_container_width=True)
-
-st.markdown('<div class="luc-rule"></div>', unsafe_allow_html=True)
-
+with c_what:
+    with st.container(border=True):
+        card_head("Species & Treatments")
+        microlabel("Species")
+        checklist_popover(
+            "Species",
+            # Scientific name italicised, per convention. st.checkbox renders
+            # Markdown in its label, so the asterisks become italics.
+            [(s["code"],
+              f"{s['code']}: {s['name']}"
+              + (f", *{s['scientific']}*" if s.get("scientific") else ""))
+             for s in DATA.species],
+            st.session_state.species,
+            "sp",
+            _toggle_species,
+            lambda: _set_species(list(DATA.species_codes)),
+            lambda: _set_species([]),
+        )
+        card_gap()
+        # One control, two sections. These drop rows from the data; the
+        # similarly-named Compare By options keep every row and split it into
+        # panels instead, which is why those read 'By treatment group'.
+        microlabel("Treatments")
+        _n_grp = len(st.session_state.treatment_periods)
+        _n_act = len(st.session_state.treatment_components)
+        dual_checklist_popover(
+            f"Treatments ({_n_grp}/{len(core.TREATMENT_GROUP_CHOICES)} · "
+            f"{_n_act}/{len(DATA.treatment_components)})",
+            [
+                {
+                    "label": "Treatment group",
+                    "options": [(g, g) for g in core.TREATMENT_GROUP_CHOICES],
+                    "selected": st.session_state.treatment_periods,
+                    "prefix": "per",
+                    "on_toggle": _toggle_period,
+                    "select_all": lambda: _set_periods(
+                        list(core.TREATMENT_GROUP_CHOICES)),
+                    "select_none": lambda: _set_periods([]),
+                },
+                {
+                    "label": "Treatment activity",
+                    "options": [(c, c) for c in DATA.treatment_components],
+                    "selected": st.session_state.treatment_components,
+                    "prefix": "tt",
+                    "on_toggle": _toggle_ttype,
+                    "select_all": lambda: _set_ttypes(
+                        list(DATA.treatment_components)),
+                    "select_none": lambda: _set_ttypes([]),
+                },
+            ],
+        )
 
 # ------------------------------------------------------- graph type / compare
 
-# What to draw comes before how to count it: Graph type and Compare by pair
-# naturally (which chart, then how to split it), so they share a row divided by
-# the same rule used in the filter toolbar. Detection unit and Scale follow, as
-# the second pair — what to count, then whether to divide it by effort.
-# Two stacked pairs side by side: what to draw on the left (which chart, then
-# how to split it), what to count on the right (which unit, then whether to
-# divide it by effort). Only 'Graph Type' carries a section heading; the other
-# three are microlabels, the same weight as the filter labels above, so the
-# block reads as one section rather than four competing ones.
-left, right = st.columns([3.4, 2.8], vertical_alignment="top")
+# No rule between the two sections: the cards already draw their own edges, so
+# a divider on top of them was a third boundary doing no work, and its margins
+# cost more height than the line itself.
+#
+# One card holding the whole chart definition, in the order you work through
+# it: which chart, how to split it, how to measure it. Two side-by-side cards
+# left the shorter one hanging, and the three controls are one decision anyway.
+section_head("Chart")
 
-with left:
-    st.markdown('<div class="luc-section luc-section-lead">Graph Type</div>',
-                unsafe_allow_html=True)
+# The 'By' prefix is what separates these from the Treatments filter above:
+# these keep every row and split it into panels, that one drops rows. Same
+# nouns, opposite operations, so the verb has to carry the difference.
+COMPARE_LABELS = {
+    "none": "None", "treatment_group": "By treatment group",
+    "treatment_type": "By treatment activity", "preserve": "By preserve",
+    "guild": "By forage guild",
+}
+
+# Narrower than the page: the card holds a four-option selector and two
+# dropdowns, and stretching it to full width left most of it empty.
+_chart_col, _chart_pad = st.columns([1.9, 2.1])
+with _chart_col, st.container(border=True):
+    card_head("Graphs")
     # Occupancy leads: it is the effort-corrected view and the primary result.
+    # Occupancy and Map are the two spatial views and sit together; Trends and
+    # Species are the two aggregate ones. 'diversity' (species richness over
+    # time) was here too — with only eight target species it sat pinned at 7-8
+    # in every season, drawing a flat line the Species Richness card already
+    # gives as one number.
     st.segmented_control(
         "Graph type",
-        # 'diversity' (species richness over time) was here. With only eight
-        # target species it sat pinned at 7-8 in every season, so it drew a flat
-        # line that said nothing the Species Richness card does not.
-        ["occupancy", "trends", "species", "region"],
+        ["occupancy", "region", "trends", "species"],
         key="graph_type",
         label_visibility="collapsed",
-        # The value stays 'region' so saved view links and exports keep working;
-        # only the label reads 'Map'.
+        # The value stays 'region' so saved view links and exports keep
+        # working; only the label reads 'Map'.
         format_func=lambda v: "Map" if v == "region" else v.capitalize(),
     )
-    st.markdown('<div class="luc-substack"></div>', unsafe_allow_html=True)
-    microlabel("Compare by")
-    st.segmented_control(
-        "Compare by",
-        ["none", "treatment_group", "treatment_type", "preserve", "guild"],
-        key="compare_by",
-        label_visibility="collapsed",
-        format_func=lambda v: {
-            "none": "None", "treatment_group": "Treat. group",
-            "treatment_type": "Treat. type", "preserve": "Preserve",
-            "guild": "Forage guild",
-        }[v],
-    )
 
-with right:
-    # Sits level with the Graph Type control, not its heading.
-    st.markdown('<div class="luc-subhead-pad"></div>', unsafe_allow_html=True)
-    microlabel("Detection unit")
-    st.segmented_control(
-        "Detection unit",
-        ["presence", "raw"],
-        key="metric",
-        label_visibility="collapsed",
-        help="Species Presence counts each recording a species appears in "
-             "(0/1). Raw Detections counts every 3-second BirdNET detection "
-             "window, about 12x higher, and weighted toward persistent singers.",
-        format_func=lambda v: core.METRIC_LABELS[v],
-    )
-    st.markdown('<div class="luc-substack"></div>', unsafe_allow_html=True)
-    microlabel("Scale")
-    st.segmented_control(
-        "Scale",
-        ["total", "per_day"],
-        key="normalize",
-        label_visibility="collapsed",
-        format_func=lambda v: "Total" if v == "total" else "Per day",
-        help="Sampling effort ranges from 35 to 244 days across seasons. "
-             "'Per day' divides by days sampled so seasons are comparable. "
-             "Affects Trends and Species only; Occupancy is always "
-             "effort-corrected.",
-    )
+    card_gap()
+    g_compare, g_params = st.columns([1, 1.35], vertical_alignment="bottom")
+    with g_compare:
+        microlabel("Compare by")
+        choice_popover("Compare by", "compare_by", list(COMPARE_LABELS),
+                       format_func=lambda v: COMPARE_LABELS[v])
+    with g_params:
+        microlabel("Parameters")
+        _summary = (f"{core.METRIC_LABELS[f.metric]} · "
+                    f"{'Per day' if f.normalize == 'per_day' else 'Total'} · "
+                    f"conf ≥ {f.confidence}")
+        with st.popover(_summary, use_container_width=False):
+            # Grouped by what each answers, so the popover reads as three
+            # questions rather than one undifferentiated list of radios.
+            microlabel("Detection unit — what counts as one detection")
+            st.radio(
+                "Detection unit", ["presence", "raw"], key="metric",
+                label_visibility="collapsed",
+                format_func=lambda v: core.METRIC_LABELS[v],
+                help="Species Presence counts each recording a species appears "
+                     "in (0/1). Raw Detections counts every 3-second BirdNET "
+                     "detection window, about 12x higher, and weighted toward "
+                     "persistent singers.",
+            )
+            st.markdown('<div class="luc-rule" style="margin:10px 0"></div>',
+                        unsafe_allow_html=True)
+            microlabel("Scale — whether to divide by effort")
+            st.radio(
+                "Scale", ["total", "per_day"], key="normalize",
+                label_visibility="collapsed",
+                format_func=lambda v: "Total" if v == "total" else "Per day",
+                help="Seasons were surveyed for very different numbers of days. "
+                     "'Per day' divides by sampling days so they are "
+                     "comparable. Affects Trends and Species only; Occupancy is "
+                     "always effort-corrected.",
+            )
+            st.markdown('<div class="luc-rule" style="margin:10px 0"></div>',
+                        unsafe_allow_html=True)
+            microlabel("Confidence — BirdNET score floor")
+            st.radio(
+                "Confidence", DATA.meta["thresholds"], key="confidence",
+                label_visibility="collapsed",
+                format_func=lambda v: f"{v:.1f}",
+                help="Keeps only detections scoring at or above this value. "
+                     "Raising it trades recall for precision.",
+            )
 
 # Filters may have changed above; recompute before drawing.
 #
@@ -751,7 +856,9 @@ def occupancy_html(panel: dict, effort_label: str,
         return ""
 
     out.append(f'<div class="luc-occ" style="grid-template-columns:{cols}">')
-    out.append("<div></div>")
+    # The corner cell was empty while the column beneath it held four-letter
+    # codes with nothing saying what they were.
+    out.append('<div class="luc-occ-corner">Species<br>code</div>')
     parts = core.bucket_label_parts(DATA)
     for ci, col in enumerate(columns):
         season, years = parts.get(col["bucket"], (col["label"], ""))

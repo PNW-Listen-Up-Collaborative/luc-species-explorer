@@ -128,28 +128,32 @@ got = core.compute_kpis(DATA, f, core.apply_filters(DATA, f)).total_detections
 want = int(summary.loc[summary["season"].str.capitalize() == "Winter", "detected@0.5"].sum())
 check("winter-only total", got, want)
 
-print("\n--- treatment group subsetting (date-aware) ---")
+print("\n--- treatment period subsetting (date-aware, multi-select) ---")
 for grp in ("control", "pretreat", "posttreat"):
-    f = replace(BASE, treatment_group=grp)
+    f = replace(BASE, treatment_periods=(grp,))
     got = core.compute_kpis(DATA, f, core.apply_filters(DATA, f)).total_detections
     want = int(summary.loc[summary["period"] == grp, "detected@0.5"].sum())
     check(f"  {grp}", got, want)
 
-# 'treat' pooled pretreat and posttreat, which defeats the comparison the study
-# is built on, so it is no longer offered. allowed_periods still resolves it so
-# a saved view link from before the change keeps working.
-check("treatment group choices exclude the pooled option",
-      core.TREATMENT_GROUP_CHOICES, ["control", "pretreat", "posttreat", "all"])
-f = replace(BASE, treatment_group="treat")
-got = core.compute_kpis(DATA, f, core.apply_filters(DATA, f)).total_detections
-want = int(summary.loc[summary["period"].isin(["pretreat", "posttreat"]),
-                       "detected@0.5"].sum())
-check("  a legacy 'treat' link still resolves", got, want)
-check("  every offered choice maps to real periods",
-      all(core.allowed_periods(replace(BASE, treatment_group=g)) is None
-          or core.allowed_periods(replace(BASE, treatment_group=g)) <= {
-              "control", "pretreat", "posttreat"}
-          for g in core.TREATMENT_GROUP_CHOICES), True)
+# The filter is multi-select, so combinations a single choice could not express
+# now work: treated plots in either era, or control against post-treatment.
+check("period options are the three real periods, with no pooled entry",
+      core.TREATMENT_GROUP_CHOICES, ["control", "pretreat", "posttreat"])
+for combo in (("pretreat", "posttreat"), ("control", "posttreat"),
+              ("control", "pretreat", "posttreat")):
+    f = replace(BASE, treatment_periods=combo)
+    got = core.compute_kpis(DATA, f, core.apply_filters(DATA, f)).total_detections
+    want = int(summary.loc[summary["period"].isin(combo), "detected@0.5"].sum())
+    check(f"  {' + '.join(combo)}", got, want)
+
+check("selecting every period is the same as no restriction",
+      core.allowed_periods(replace(BASE, treatment_periods=(
+          "control", "pretreat", "posttreat"))), None)
+check("  as is selecting none",
+      core.allowed_periods(replace(BASE, treatment_periods=())), None)
+check("  a partial selection restricts to exactly those",
+      core.allowed_periods(replace(BASE, treatment_periods=("control",))),
+      {"control"})
 check("  and the metric is labelled Species Presence",
       core.METRIC_LABELS["presence"], "Species Presence")
 
@@ -576,7 +580,7 @@ check(f"hours for {pv}", round(k.hours_recorded, 1), round(want_h, 1), tol=0.05)
 rec_periods = summary.drop_duplicates("rec")[["rec", "period"]]
 tot = 0
 for grp in ("control", "pretreat", "posttreat"):
-    fg = replace(DEFAULTS, treatment_group=grp)
+    fg = replace(DEFAULTS, treatment_periods=(grp,))
     kg = core.compute_kpis(DATA, fg, core.apply_filters(DATA, fg))
     want = int((rec_periods["period"] == grp).sum())
     check(f"  {grp} recordings", kg.n_recordings, want)
@@ -589,7 +593,7 @@ print("\n--- effort denominator respects every filter ---")
 # Regression: the occupancy denominator previously ignored treatment filters,
 # so restricting to control plots divided by all 40 plots' sampling days.
 f_all = DEFAULTS
-f_ctl = replace(DEFAULTS, treatment_group="control")
+f_ctl = replace(DEFAULTS, treatment_periods=("control",))
 _, samp_all, bk = core.occupancy_grid(DATA, f_all, core.apply_filters(DATA, f_all))
 _, samp_ctl, _ = core.occupancy_grid(DATA, f_ctl, core.apply_filters(DATA, f_ctl))
 check("control denominator is strictly smaller than all-periods",

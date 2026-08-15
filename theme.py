@@ -97,7 +97,9 @@ span[class*="material-symbols"] {{
    neighbouring column whose first control sits under a section heading. */
 .luc-subhead-pad {{ height: 26px; }}
 /* Separates the KPI cards from the filter block below them. */
-.luc-section-top {{ margin-top: var(--space-6); }}
+/* Separates one section from the one above it now that the rule between them
+   is gone; the heading's own space does the dividing. */
+.luc-section-top {{ margin-top: var(--space-4); }}
 .luc-microlabel {{
   font-size: 10.5px; font-weight: 800; text-transform: uppercase;
   letter-spacing: 0.1em; color: var(--muted); margin-bottom: 5px;
@@ -170,6 +172,28 @@ span[class*="material-symbols"] {{
 }}
 .luc-kpi-sub {{ font-size: 11.5px; color: var(--muted); margin-top: 2px; }}
 
+/* ------------------------------------------------------------ filter cards */
+/* Same trick as the chart panel: st.container(border=True) gives no class to
+   hook, so the card is identified by a marker div placed inside it. Lighter
+   than the chart panel — these frame controls, not results, and should not
+   compete with the charts for attention. */
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.luc-filtercard) {{
+  border: 1px solid var(--divider) !important;
+  border-radius: 0 !important;
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  height: 100%;
+}}
+.luc-filtercard {{ display: none; }}
+.luc-cardhead {{
+  font-size: 11px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.09em; color: var(--ink);
+  padding-bottom: 6px; margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--divider);
+}}
+/* Inside a card the second control needs air from the first. */
+.luc-cardgap {{ height: var(--space-3); }}
+
 /* ------------------------------------------------------------- chart panel */
 /* st.container(border=True) renders a wrapper we can't put a class on, so scope
    by content: only the wrapper containing the panel title gets the card
@@ -206,6 +230,15 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.luc-panel-title) {{
   display: flex; align-items: center; font-size: 11px; font-weight: 800;
   letter-spacing: 0.06em; color: var(--ink);
 }}
+/* Names the row-label column. Same muted weight as the season headers beside
+   it, so it reads as a header rather than as data. */
+.luc-occ-corner {{
+  display: flex; flex-direction: column; justify-content: flex-end;
+  font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted);
+  line-height: 1.25; padding-bottom: 4px;
+}}
+
 /* Season over year, so the column reads without decoding an abbreviation. */
 .luc-occ-collabel {{
   display: flex; flex-direction: column; align-items: center;
@@ -228,10 +261,14 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.luc-panel-title) {{
 /* The plots behind a grid, named. Monospaced so the codes align and scan as a
    list, and wrapping rather than truncating — a hidden plot name is the thing
    this is here to prevent. */
+/* The plot roster can run to several wrapped lines at full selection, and it
+   sat hard against the column headers — two dense blocks of small text with
+   nothing between them. The gap below separates the list from the grid it
+   describes. */
 .luc-occ-roster {{
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px; color: var(--muted); line-height: 1.5;
-  margin: 0 0 var(--space-2); word-break: break-word;
+  margin: 0 0 var(--space-4); word-break: break-word;
 }}
 
 /* Effort row label sits apart from the species codes. */
@@ -289,7 +326,7 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.luc-panel-title) {{
 /* Treatment context strip above every Occupancy grid. */
 .luc-treatbar {{
   display: flex; flex-wrap: wrap; gap: var(--space-6);
-  padding: 8px 0 12px; margin-bottom: var(--space-3);
+  padding: 8px 0 12px; margin-bottom: var(--space-4);
   border-bottom: 2px solid var(--divider);
 }}
 .luc-treatitem {{ display: inline-flex; align-items: center; gap: 7px; }}
@@ -412,7 +449,20 @@ div[data-testid="stButtonGroup"]:has(button[data-testid^="stBaseButton-pills"]) 
    But Streamlit stacks columns on a narrow one, and a filled column is then
    the whole page — Plot stretched edge to edge while its neighbours stayed
    small. Capping the width keeps every filter the same size at any viewport. */
-div[data-testid="stPopover"] button {{ max-width: 300px; }}
+/* A control must never be narrower than its own label. Streamlit shrinks
+   columns as the viewport narrows and the contents get clipped — 'Season
+   (3/3)' became 'Season (3/' and the year selects collapsed to a bare ':'.
+   Sizing to content and refusing to shrink keeps the text whole; the row wraps
+   instead, which is the readable failure mode. */
+div[data-testid="stPopover"] button {{
+  width: max-content; min-width: max-content; max-width: 100%;
+  white-space: nowrap;
+}}
+/* The only selectboxes are the two year pickers. They hold four characters, so
+   they are capped as well as floored — left to themselves they stretched to
+   fill half the row. */
+.stSelectbox div[data-baseweb="select"] {{ min-width: 88px; max-width: 116px; }}
+.stSelectbox div[data-baseweb="select"] > div {{ white-space: nowrap; }}
 /* Primary button = filled accent. */
 .stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {{
   background: var(--accent) !important; border-color: var(--accent) !important;
@@ -453,8 +503,9 @@ div[data-baseweb="select"] > div {{
 }}
 
 /* Vertical rules between toolbar filter groups. */
-/* Centred in its spacer column rather than hugging the left edge, which read as
-   a rule belonging to the control on its right instead of dividing the two. */
+/* The filter toolbar's vertical rules are gone: they implied grouping between
+   independent controls and were read as confusing. Whitespace separates them
+   now. Rule kept only in case a genuine divider is wanted later. */
 .luc-vrule {{ display: flex; justify-content: center; width: 100%; }}
 .luc-vrule::before {{
   content: ""; border-left: 2px solid var(--divider); height: 58px;
@@ -463,6 +514,12 @@ div[data-baseweb="select"] > div {{
 /* Tighten default Streamlit spacing so the toolbar reads as one strip. */
 div[data-testid="stVerticalBlock"] {{ gap: 0.5rem; }}
 div[data-testid="stHorizontalBlock"] {{ align-items: flex-end; }}
+/* ...except a row of cards, which must start level and stretch to a common
+   height. Bottom-alignment is right for bare controls sitting on a shared
+   baseline, and wrong for boxes: it hung the shorter card off the bottom. */
+div[data-testid="stHorizontalBlock"]:has(.luc-filtercard) {{
+  align-items: stretch;
+}}
 /* The panel keeps its own breathing room; only the control strip is squeezed. */
 div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlock"] {{
   gap: 0.55rem;

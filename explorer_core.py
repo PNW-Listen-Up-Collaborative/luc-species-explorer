@@ -44,6 +44,31 @@ ACCENT_700 = shade(ACCENT, -0.40)   # dark shade  ~ #0b5599
 
 PALETTE = [ACCENT, INK, NEUTRAL_600, ACCENT_400, ACCENT_700]
 
+# Colours for Compare-by series. PALETTE was used here and holds five entries,
+# four of them blues or greys, so 'By activity' (11 groups) and 'By preserve'
+# (12) cycled it and drew several series in the same colour — unreadable on a
+# line chart where colour is the only thing telling the lines apart.
+#
+# Twelve is the most any grouping needs. One per hue family, shades chosen by
+# simulating protanopia, deuteranopia and tritanopia (worst pair dE 10.5 —
+# lower than the eight-colour species set, which is the unavoidable cost of
+# needing half again as many), and ordered so neighbours contrast, since groups
+# are listed alphabetically and adjacent ones sit together in the legend.
+GROUP_COLORS = [
+    "#FF7F9E",   # pink
+    "#0044CC",   # blue
+    "#D40000",   # red
+    "#5B2C9E",   # purple
+    "#E36C09",   # orange
+    "#1F2E63",   # navy
+    "#F0B400",   # gold
+    "#00B3C6",   # cyan
+    "#A0522D",   # brown
+    "#E5308F",   # magenta
+    "#8C9440",   # olive
+    "#1B8A3C",   # green
+]
+
 # Control is green, not gray, so it means the same thing in the Trends legend as
 # it does in the occupancy heatmaps, and never collides with the gray used for
 # sampling effort.
@@ -255,7 +280,11 @@ class Filters:
     species: tuple[str, ...] = ()
     preserves: tuple[str, ...] = ()
     plots: tuple[str, ...] = ()
-    treatment_group: str = "all"          # control|pretreat|posttreat|treat|all
+    # Any subset of control/pretreat/posttreat. Multi-select rather than a
+    # single choice: 'pretreat + posttreat' (treated plots, either era) and
+    # 'control + posttreat' (the after-treatment comparison) are both real
+    # questions that a single-choice control could not ask.
+    treatment_periods: tuple[str, ...] = ()
     treatment_components: tuple[str, ...] = ()
     graph_type: str = "trends"
     compare_by: str = "none"
@@ -281,7 +310,7 @@ def default_filters(data: Dataset) -> Filters:
         species=tuple(data.species_codes),
         preserves=tuple(data.preserves),
         plots=tuple(data.all_plots),
-        treatment_group="all",
+        treatment_periods=tuple(TREATMENT_GROUP_ORDER),
         treatment_components=tuple(data.treatment_components),
         graph_type="occupancy",
         compare_by="none",
@@ -343,20 +372,20 @@ def eligible_plots(data: Dataset, f: Filters) -> list[str]:
     return list(sel["plot"])
 
 
-# The Treatment group control's options. 'treat' — pretreat and posttreat
-# pooled — is deliberately absent: it merged the two eras the study exists to
-# compare, and 'all' already means "no restriction". allowed_periods still
-# understands it so an old saved view link does not break.
-TREATMENT_GROUP_CHOICES = ["control", "pretreat", "posttreat", "all"]
+# The Treatment period filter's options. Multi-select, so there is no 'all'
+# entry: selecting every period is what 'all' meant, and a pooled 'treat'
+# option is unnecessary now that pretreat and posttreat can be ticked together.
+TREATMENT_GROUP_CHOICES = list(TREATMENT_GROUP_ORDER)
 
 
 def allowed_periods(f: Filters) -> set[str] | None:
     """Treatment periods the filter admits, or None for no restriction."""
-    if f.treatment_group == "all":
+    chosen = set(f.treatment_periods)
+    # Everything selected, or nothing yet, means no restriction — the same
+    # rows either way, and returning a full set would only cost a merge.
+    if not chosen or chosen >= set(TREATMENT_GROUP_ORDER):
         return None
-    if f.treatment_group == "treat":
-        return {"pretreat", "posttreat"}
-    return {f.treatment_group}
+    return chosen
 
 
 def apply_filters(data: Dataset, f: Filters) -> pd.DataFrame:
@@ -689,9 +718,16 @@ def group_value(rows: pd.DataFrame, compare_by: str) -> pd.Series:
 
 
 def group_color(compare_by: str, value: str, idx: int) -> str:
+    """
+    The line colour for one Compare-by series.
+
+    Treatment period keeps its fixed control/pretreat/posttreat colours, which
+    mean the same thing across every view. Everything else draws from
+    GROUP_COLORS, which is long enough that no grouping has to reuse a colour.
+    """
     if compare_by == "treatment_group":
         return TREATMENT_GROUP_COLORS.get(value, ACCENT)
-    return PALETTE[idx % len(PALETTE)]
+    return GROUP_COLORS[idx % len(GROUP_COLORS)]
 
 
 def group_order(rows: pd.DataFrame, compare_by: str) -> list[str]:
@@ -2000,7 +2036,7 @@ def view_state_json(f: Filters) -> str:
             "species": list(f.species),
             "preserves": list(f.preserves),
             "plots": list(f.plots),
-            "treatmentGroup": f.treatment_group,
+            "treatmentPeriods": list(f.treatment_periods),
             "treatmentComponents": list(f.treatment_components),
             "occGranularity": f.occ_granularity,
             "metric": f.metric,
