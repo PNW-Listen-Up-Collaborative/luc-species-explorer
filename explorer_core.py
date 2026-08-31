@@ -527,6 +527,60 @@ def sampling_days(
     return pd.Series([int(n.get(b, 0)) for b in buckets], index=buckets)
 
 
+def plot_days(
+    data: Dataset, f: Filters, plots: list[str], buckets: list[str],
+    periods: set[str] | None = None, period_types: set[str] | None = None,
+) -> pd.Series:
+    """
+    Distinct (plot, date) pairs recorded, per bucket — one recorder for one day.
+
+    The sum across plots, not the union, and so deliberately not
+    sampling_days(). The two answer different questions and belong to different
+    charts:
+
+      sampling_days  is the denominator of a *rate*. Occupancy asks on how many
+                     days a species was present; eight recorders hearing it on
+                     one morning is one day of evidence, not eight, so the
+                     dates are unioned.
+
+      plot_days      is the denominator of a *count*. Total detections scale
+                     with microphones as well as with days — eight recorders
+                     collect roughly eight times the audio one does — so
+                     normalising a count by dates alone leaves the number of
+                     recorders uncorrected, which is the very distortion the
+                     normalisation is there to remove.
+
+    Only cells that exist are counted: a bucket where five plots ran for seven
+    days is 35, but a ragged one where the array wound down is the number of
+    (plot, date) pairs actually recorded, not plots x dates. A day a recorder
+    was not out is absent effort, not a zero.
+    """
+    sel = _filter_slots(data.dates, f, plots, buckets, periods, period_types)
+    if sel.empty:
+        return pd.Series([0] * len(buckets), index=buckets, dtype=float)
+    n = sel.drop_duplicates(["bucket", "plot", "date"]).groupby("bucket").size()
+    return pd.Series([float(n.get(b, 0)) for b in buckets], index=buckets)
+
+
+def plots_recorded(
+    data: Dataset, f: Filters, plots: list[str], buckets: list[str],
+    periods: set[str] | None = None, period_types: set[str] | None = None,
+) -> pd.Series:
+    """
+    How many of the selected plots recorded at all, per bucket.
+
+    The other half of effort: plot_days answers how much listening happened,
+    this answers how widely it was spread. Reported rather than corrected for,
+    because a season covering different sites is not made comparable by
+    dividing — it is a different sample of the landscape.
+    """
+    sel = _filter_slots(data.dates, f, plots, buckets, periods, period_types)
+    if sel.empty:
+        return pd.Series([0] * len(buckets), index=buckets, dtype=float)
+    n = sel.groupby("bucket")["plot"].nunique()
+    return pd.Series([float(n.get(b, 0)) for b in buckets], index=buckets)
+
+
 def days_detected(
     data: Dataset, f: Filters, plots: list[str], buckets: list[str],
     codes: list[str], periods: set[str] | None = None,
@@ -1851,207 +1905,161 @@ def methodology(data: Dataset) -> list[tuple[str, list[tuple[str, str]]]]:
     hrs = data.hours
 
     return [
-        ("Detection unit — what counts as one detection", [
+        ("Detection unit: what counts as one detection", [
             (
                 "Species Presence",
-                "One species detected in one recording, counted 0/1. A bird "
-                "heard forty times in a ten-minute file counts once — but a "
-                "file holding three species contributes three, because the "
-                "flag is per recording AND species. At confidence "
-                f"{t0} this totals {pres_by_t[t0]:,}. It is the default, "
-                "because it measures how widespread a species is rather than "
-                "how much it sang.",
+                "One species in one recording, counted 0/1. A bird heard "
+                "forty times in a ten-minute file counts once; a file holding "
+                f"three species contributes three. {pres_by_t[t0]:,} at "
+                f"confidence {t0}.",
             ),
             (
                 "Not the same as recordings with a detection",
-                f"{pres_by_t[t0]:,} species detections come from "
-                f"{distinct_by_t.get(t0, 0):,} distinct recordings — about "
-                f"{pres_by_t[t0] / max(distinct_by_t.get(t0, 1), 1):.1f} "
-                "species per recording that has any detection at all. If you "
-                "want 'how many of my files caught something', that is the "
-                "smaller number; the card reports the larger because occupancy "
-                "and the species ranking are both per species.",
+                f"Those {pres_by_t[t0]:,} come from "
+                f"{distinct_by_t.get(t0, 0):,} distinct recordings. For 'how "
+                "many of my files caught something', use the smaller number.",
             ),
             (
                 "Raw detections",
-                "Every three-second BirdNET detection window, counted "
-                f"separately — {raw_by_t[t0]:,} at confidence {t0}, about "
-                f"{ratio:.0f}x the presence figure. It scales with how "
-                "persistently a bird vocalises, not how widely it occurs, so "
-                "it can reorder the species ranking. Useful for calling "
-                "intensity; misleading as a measure of distribution.",
+                f"Every three-second BirdNET window, counted separately: "
+                f"{raw_by_t[t0]:,} at confidence {t0}, about {ratio:.0f}x the "
+                "presence figure. Favours persistent singers over widespread "
+                "ones.",
             ),
         ]),
-        ("Scale — whether the count is divided by effort", [
+        ("Scale: whether the count is divided by effort", [
             (
                 "Total",
-                "The summed count over whatever is selected, uncorrected. "
-                "Seasons were surveyed for very different numbers of days, so "
-                "a total is comparable only where effort is comparable — "
-                "otherwise it partly measures how long the recorders ran.",
+                "The summed count, uncorrected. Comparable only where effort "
+                "is comparable.",
             ),
             (
                 "Per day",
-                "The same count divided by the sampling days behind it, which "
-                "removes that. Species richness is never normalised, being a "
-                "count of species rather than of detections.",
+                "The same count divided by the sampling days behind it. "
+                "Richness is never normalised, being a count of species.",
             ),
             (
                 "Where it applies",
-                "Trends and Species only. Occupancy is a ratio already, so it "
-                "is effort-corrected whatever this is set to, and the Region "
-                "map sizes its bubbles the same way.",
+                "Trends and Species only. Occupancy is already a ratio.",
             ),
         ]),
-        ("Occupancy — the effort-corrected measure used by the heatmaps and maps", [
+        ("Occupancy: the effort-corrected measure used by the heatmaps and maps", [
             (
                 "Sampling days",
-                "Distinct calendar dates on which any selected plot recorded. "
-                "The union across plots, not the sum: five recorders running "
-                "the same sixteen dates is sixteen sampling days. This is what "
-                "makes effort comparable between seasons and years, which vary "
-                "several-fold in how long they were surveyed.",
+                "Distinct dates on which any selected plot recorded. The "
+                "union across plots, not the sum: five recorders over the "
+                "same sixteen dates is sixteen days.",
             ),
             (
                 "Days detected",
-                "Distinct calendar dates on which the species was flagged at "
-                "any selected plot. Counted the same way as the denominator: a "
-                "species claims a date if it was heard somewhere in the "
-                "selection, however many recordings caught it.",
+                "Distinct dates the species was flagged at any selected plot, "
+                "counted the same way.",
             ),
             (
                 "Daily occupancy (%)",
-                "Days detected ÷ sampling days × 100. Grovers in Summer 2022: "
-                "BEWR was heard on 14 of the 16 dates surveyed, so 87.5%.",
+                "Days detected ÷ sampling days. Grovers in Summer 2022: BEWR "
+                "on 14 of 16 dates, so 87.5%.",
             ),
             (
                 "Hourly occupancy (%)",
-                "The same, with the unit a distinct (date, clock-hour) rather "
-                "than a date. Finer-grained, and the basis for the "
-                "sunrise-relative analysis.",
+                "The same, counting distinct (date, hour) slots instead of "
+                "dates.",
             ),
             (
                 "It rises as you add plots",
-                "A species only has to be heard at one plot to claim the day, "
-                "so pooling more plots pushes occupancy up — most species read "
-                "100% across all 40. Compare like with like: one plot against "
-                "itself over time, or one preserve against another.",
+                "One plot hearing a species claims the day for all of them. "
+                "Pooled over 40 plots most species read 100%, so compare one "
+                "plot or preserve against itself.",
             ),
             (
                 "Why occupancy rather than counts",
-                "Both are ratios, so a plot recorded for nine days and one "
-                "recorded for ninety are directly comparable. This is why the "
-                "map sizes bubbles by occupancy rather than detections.",
+                "It is a ratio, so nine days of recording and ninety are "
+                "directly comparable.",
             ),
             (
                 "NA versus 0%",
-                "0% means the species was looked for and not found. NA means "
-                "there was no sampling effort at all — the two are shaded "
-                "differently and never conflated. In the Treat. type panels a "
-                "third, flatter shade marks seasons belonging to a different "
-                "treatment period entirely.",
+                "0% means looked for and not found. NA means no sampling "
+                "effort at all. A third, flatter shade marks seasons outside "
+                "a plot's treatment period.",
             ),
         ]),
         ("Confidence threshold", [
             (
                 "What it does",
-                "Keeps only BirdNET detections scoring at or above the chosen "
-                "value, recomputed per row from the raw detection table rather "
-                "than read from a precomputed flag. Raising it trades recall "
-                "for precision: "
-                + ", ".join(
-                    f"{t} gives {pres_by_t[t]:,} presence detections"
-                    for t in sorted(raw_by_t)
-                )
+                "Keeps only detections scoring at or above the chosen value, "
+                "recomputed per row. Raising it trades recall for precision: "
+                + ", ".join(f"{t} gives {pres_by_t[t]:,}"
+                            for t in sorted(raw_by_t))
                 + ".",
             ),
             (
                 "Default of 0.3",
-                "BirdNET's own reporting floor and the threshold used in the "
-                "source notebook, so the dashboard opens on the same basis as "
-                "the written analysis.",
+                "BirdNET's own reporting floor, and the threshold used in the "
+                "source notebook.",
             ),
         ]),
-        ("Header figures — effort and coverage", [
+        ("Header figures: effort and coverage", [
             (
                 "Number of recordings",
                 f"{data.meta['n_recordings']:,} audio files across "
                 f"{len(data.all_plots)} plots and {len(data.preserves)} "
-                "preserves, counted from the recording manifest so files "
-                "containing no detection at all are still counted as effort.",
+                "preserves. Files containing no detection still count as "
+                "effort.",
             ),
             (
                 "What the effort cards respond to",
-                "Recordings and Hours recorded follow the plot, preserve, "
-                "season, year and treatment filters, but deliberately not "
-                "species or confidence: a recorder ran for the same time "
-                "whichever species you later ask about. They are also the "
-                "denominator every occupancy figure divides by, so shrinking "
-                "them per species would make occupancy meaningless. For "
-                "'recordings containing this species', read Species Presence.",
+                "Recordings and Hours recorded follow the plot, season, year "
+                "and treatment filters, but not species or confidence: a "
+                "recorder ran for the same time whichever species you ask "
+                "about.",
             ),
             (
                 "Hours recorded",
                 f"{data.meta.get('total_audio_hours', 0):,} hours of actual "
-                f"audio. Recorders were scheduled on a {nominal // 60}-minute "
-                f"cycle but each file is about {typical} seconds, so duration "
-                "is derived from file size rather than assumed "
-                f"({data.meta.get('n_truncated_recordings', 0)} files are "
-                "shorter still and are counted at their true length).",
+                "audio, derived from file size rather than from the "
+                f"{nominal // 60}-minute schedule, since each file is about "
+                f"{typical} seconds.",
             ),
             (
                 "Time of day",
                 "Recording runs "
-                + (f"{hrs[0]}:00–{hrs[-1] + 1}:00" if hrs else "n/a")
-                + " Pacific, a dawn-chorus window rather than a full day. A "
-                "file stamped 9:40 ends about 9:50, which is why the clock "
-                "axis extends one hour past the last start time.",
+                + (f"{hrs[0]}:00-{hrs[-1] + 1}:00" if hrs else "n/a")
+                + " Pacific, a dawn-chorus window rather than a full day.",
             ),
             (
                 "Hours from sunrise",
-                "The Region map's time scrubber is measured from sunrise, not "
-                "from the clock. Sunrise is computed for each plot on each "
-                "date from its latitude and longitude, so bin 0 means the hour "
-                "beginning at dawn wherever and whenever it falls. Clock hour "
-                "cannot be compared across seasons here: dawn moves nearly "
-                "three hours between June and December and the recorders "
-                "followed it, so on a clock axis 4-6 AM is summer-only and "
-                "8-9 AM mostly winter — 'time of day' would quietly mean "
-                "'season'. On the sunrise axis all three seasons overlap.",
+                "Sunrise is computed per plot per date, so bin 0 is the hour "
+                "beginning at dawn. Dawn moves nearly three hours between "
+                "June and December, so on a clock axis 'time of day' would "
+                "quietly mean 'season'.",
             ),
             (
                 "Species richness",
                 f"How many of the {len(data.species_codes)} tracked species "
-                "were detected at least once under the current filters. A "
-                "count of species, so it is never normalised by effort — but "
-                "it does rise with effort, since more listening finds more "
-                "species.",
+                "were detected at least once. Never normalised, but it does "
+                "rise with effort.",
             ),
             (
                 "Preserves and Plots",
                 f"How much of the {len(data.preserves)}-preserve, "
-                f"{len(data.all_plots)}-plot network actually produced a "
-                "detection under the current filters — not how much is ticked "
-                "in the sidebar. Raising the confidence threshold or narrowing "
-                "to one species will drop silent plots out of these counts, "
-                "which is the point: they show reach, not selection.",
+                f"{len(data.all_plots)}-plot network produced a detection, "
+                "not how much is ticked in the sidebar. They show reach, not "
+                "selection.",
             ),
         ]),
         ("Treatment group and treatment type", [
             (
                 "Both are date-aware",
                 "A plot is pre-treatment before its treatment date and "
-                "post-treatment after it, so the same plot contributes to both "
-                f"periods in different seasons. {n_both} plots were treated "
-                "partway through monitoring. Treatment type changes with it — "
-                "'none' beforehand, the actual activities afterwards. Static "
-                "per-plot labels would misattribute both.",
+                "post-treatment after it, so the same plot contributes to "
+                f"both in different seasons. {n_both} plots were treated "
+                "partway through monitoring.",
             ),
             (
                 "Control",
-                "Plots never scheduled for treatment. Control is a reference "
-                "condition, not a point on the pre/post timeline, so it is "
-                "drawn as its own grid rather than as a third era.",
+                "Plots never scheduled for treatment. A reference condition, "
+                "not a point on the pre/post timeline, so it gets its own "
+                "grid.",
             ),
         ]),
     ]
@@ -2190,7 +2198,7 @@ def occupancy_note(data: Dataset, f: Filters) -> str:
             "Count = the number of 10-minute recordings containing the "
             f"species, at confidence ≥ {f.confidence}, summed across the "
             "selected plots. One recording counts once however many times the "
-            "bird sings in it. This is a raw total, not corrected for effort — "
+            "bird sings in it. This is a raw total, not corrected for effort. "
             "read it against the sampling-days row above, since a season with "
             "twice the survey days will tend to show twice the detections. "
             "Unlike occupancy it does not saturate, so it still separates "

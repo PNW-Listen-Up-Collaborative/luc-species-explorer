@@ -33,3 +33,14 @@ __pycache__/
 #   conda env create -f environment.local.yml
 environment.yml
 environment.local.yml
+
+# Design source from Claude Design. The standalone HTML is a 900 KB bundle of
+# the mockup, useful for reference and not part of the app.
+Species Explorer Dashboard*.html
+Species Explorer Dashboard*.zip
+Species Explorer Dashboard Redesign/
+
+# The two halves app_v2.py was assembled from. Superseded the moment they were
+# concatenated; kept on disk only because deletion was declined.
+app_v2_head.py
+app_v2_tail.py

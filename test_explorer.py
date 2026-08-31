@@ -1360,8 +1360,9 @@ check("  every threshold is listed with its own total",
 check("  date-aware plot count matches the metadata",
       f"{len(DATA.meta['plots_with_both_periods'])} plots were treated"
       in _flat["Both are date-aware"], True)
+# Hyphen, not an en dash: the dashboard's copy uses no dashes of any kind.
 check("  recording window matches the raw hours",
-      f"{_summary_hours[0]}:00–{_summary_hours[-1] + 1}:00"
+      f"{_summary_hours[0]}:00-{_summary_hours[-1] + 1}:00"
       in _flat["Time of day"], True)
 
 print("\n--- species colours survive colour-vision deficiency ---")
@@ -1516,6 +1517,49 @@ check("everything", core.selection_label(DATA, DEFAULTS), "All Preserves · 40 p
 
 print("\n--- occupancy is the default view ---")
 check("default graph type", DEFAULTS.graph_type, "occupancy")
+
+print("\n--- plot-days: the denominator of a count, not of a rate ---")
+_f_tr = replace(DEFAULTS, graph_type="trends", compare_by="none")
+_bk = core.visible_buckets(DATA, _f_tr)
+_pd_app = core.plot_days(DATA, _f_tr, list(_f_tr.plots), _bk)
+
+# Sp'24 is the fully-rectangular bucket: 5 plots x 7 dates.
+_sp24 = DATA.dates[DATA.dates["bucket"] == "Sp'24"].drop_duplicates(["plot", "date"])
+check("Sp'24 is 5 plots x 7 dates",
+      (_sp24["plot"].nunique(), _sp24["date"].nunique()), (5, 7))
+check("Sp'24 plot-days = 35", float(_pd_app["Sp'24"]), 35.0)
+
+# Wi'22-23 is the ragged one: the array wound down over New Year, so the count
+# must be the cells that exist, not plots x dates.
+_wi = DATA.dates[DATA.dates["bucket"] == "Wi'22-23"].drop_duplicates(["plot", "date"])
+check("Wi'22-23 plot-days count only recorded cells",
+      float(_pd_app["Wi'22-23"]), float(len(_wi)))
+check("Wi'22-23 is ragged, so plot-days < plots x dates",
+      float(_pd_app["Wi'22-23"]) < _wi["plot"].nunique() * _wi["date"].nunique(),
+      True)
+
+# plot-days is a sum across plots; sampling_days is a union of dates. They may
+# never be confused, so assert the relationship rather than just the values.
+_sd = core.sampling_days(DATA, _f_tr, list(_f_tr.plots), _bk)
+check("plot-days >= sampling days in every bucket",
+      all(float(_pd_app[b]) >= float(_sd[b]) for b in _bk), True)
+check("and strictly greater wherever more than one plot ran",
+      float(_pd_app["Su'24"]) > float(_sd["Su'24"]), True)
+
+# The normalised value the chart plots, end to end.
+_raw_sp24 = core.build_series(
+    DATA, _f_tr, core.apply_filters(DATA, _f_tr), "detections")[0][0]["values"]
+_sp24_raw = _raw_sp24[_bk.index("Sp'24")]
+check("Sp'24 raw detections", int(_sp24_raw), 1316)
+check("Sp'24 per plot-day", round(_sp24_raw / 35.0, 2), 37.60)
+
+check("plots recorded per bucket",
+      [int(v) for v in core.plots_recorded(DATA, _f_tr, list(_f_tr.plots), _bk)],
+      [len(set(DATA.dates[DATA.dates["bucket"] == b]["plot"])) for b in _bk])
+# The reason the effort strip shows plots at all: no site spans the series, so
+# the chart is never comparing the same places across buckets.
+_sets = [set(DATA.dates[DATA.dates["bucket"] == b]["plot"]) for b in _bk]
+check("no plot recorded in every bucket", set.intersection(*_sets), set())
 
 # ------------------------------------------------------------------- summary
 print("\n" + "=" * 62)
