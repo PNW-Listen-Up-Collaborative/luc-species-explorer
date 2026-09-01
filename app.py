@@ -587,6 +587,36 @@ components.html(
       }, 250);
     }, { once: true });
   }, true);
+
+  // ── keep the two top panels level ──────────────────────────────────────
+  // Their headings wrap to different numbers of lines, which pushed each
+  // column's rule, subtitle and chart to a different height. A CSS min-height
+  // cannot fix it: the number of lines depends on the width, so any fixed
+  // reserve is either too small at one size or wasteful at another. Measuring
+  // the pair and levelling them up to the taller one works at every width.
+  function level(selector) {
+    const els = doc.querySelectorAll(
+      'div[data-testid="stColumn"] ' + selector);
+    if (els.length < 2) return;
+    els.forEach(function (el) { el.style.minHeight = ''; });
+    let tallest = 0;
+    els.forEach(function (el) {
+      tallest = Math.max(tallest, el.getBoundingClientRect().height);
+    });
+    els.forEach(function (el) { el.style.minHeight = tallest + 'px'; });
+  }
+
+  function levelAll() {
+    level('.v2-panelhead');
+    level('.v2-panelsub');
+  }
+
+  // On load, on resize, and whenever Streamlit rerenders the page.
+  levelAll();
+  window.parent.addEventListener('resize', levelAll);
+  new window.parent.MutationObserver(function () {
+    window.parent.requestAnimationFrame(levelAll);
+  }).observe(doc.body, { childList: true, subtree: true });
 })();
 </script>
 """,

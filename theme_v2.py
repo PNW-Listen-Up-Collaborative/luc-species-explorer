@@ -145,6 +145,14 @@ section[data-testid="stSidebar"] .block-container {{ padding-top: 0 !important; 
   text-transform: uppercase; text-align: right; flex: 0 1 auto;
 }}
 .v2-panelsub {{ font-size: 12px; color: {V2_MUTED}; margin: 9px 0 2px; }}
+/* The two charts at the top sit in side-by-side columns whose headings wrap to
+   different numbers of lines. Anchoring the heading to the bottom of its box
+   is half the fix; the heights themselves are levelled by the script in
+   app.py, since how many lines a title takes depends on the width and no fixed
+   reserve is right at every size. */
+div[data-testid="stColumn"] .v2-panelhead {{
+  align-items: flex-end;
+}}
 /* Used when a panel puts a control on its heading row: the heading and the
    control are separate Streamlit columns, so the rule cannot be a border on
    the heading itself and is drawn as its own full-width element beneath. */
