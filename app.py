@@ -608,32 +608,35 @@ st.markdown(
 )
 
 
-def kpi(label: str, value: str, sub: str) -> str:
+def kpi(label: str, value: str, note: str) -> str:
+    """One card. The note is a chip, as the design draws it."""
     return (f'<div class="v2-kpi"><div class="v2-kpi-label">{label}</div>'
             f'<div class="v2-kpi-value">{value}</div>'
-            f'<div class="v2-kpi-sub">{sub}</div></div>')
+            f'<div class="v2-kpi-sub">{note}</div></div>')
 
 
+# Four cards, per the design, not six. Recordings folded into Species Presence
+# as its denominator, where it says something ("23,394 detections across 18,211
+# files") rather than sitting alone; Preserves and Plots share a card because
+# they answer one question, how much of the network this selection reaches.
 st.markdown(
     '<div class="v2-kpis">'
     + kpi(core.METRIC_LABELS[f.metric], f"{kpis.total_detections:,}",
-          f"{core.metric_unit_short(DATA, f.metric)} · conf ≥ {f.confidence}")
-    + kpi("Recordings", f"{kpis.n_recordings:,}", "at selected plots &amp; dates")
-    + kpi("Hours recorded", f"{kpis.hours_recorded:,.0f}", "true audio, same scope")
-    + kpi("Species richness", f"{kpis.richness}",
-          f"of {kpis.n_species_tracked} tracked")
-    + kpi("Preserves", f"{kpis.n_preserves}", f"of {len(DATA.preserves)} detected")
-    + kpi("Plots", f"{kpis.active_plots}", f"of {len(DATA.all_plots)} detected")
+          f"per {kpis.n_recordings:,} total 10-min recordings")
+    + kpi("Hours Recorded", f"{kpis.hours_recorded:,.0f}",
+          f"out of {DATA.meta.get('total_audio_hours', 0):,} total hours")
+    + kpi("Species Richness", f"{kpis.richness}",
+          f"{kpis.richness} of {kpis.n_species_tracked} tracked")
+    + kpi("Preserves &amp; Plots",
+          f"{kpis.n_preserves} / {kpis.active_plots}",
+          f"{kpis.n_preserves} of {len(DATA.preserves)} · "
+          f"{kpis.active_plots} of {len(DATA.all_plots)}")
     + "</div>",
     unsafe_allow_html=True,
 )
 
 
 # ------------------------------------------------------------------- charts
-#
-# Copied verbatim from app.py so v1 keeps working untouched while the two
-# layouts are compared. Whichever version survives, the loser's copy goes
-# and these move to a shared charts module.
 
 def line_chart(series: list[dict], buckets: list[str], decimals: int = 0) -> go.Figure:
     fig = go.Figure()
@@ -704,9 +707,10 @@ def hourly_chart(curves: pd.DataFrame, facets: list, facet_label: str,
     fig = make_subplots(
         rows=nrows, cols=ncols, shared_xaxes=False, shared_yaxes=True,
         subplot_titles=[str(v) for v in facets],
-        # Tighter on the tall grids. Every panel prints its own hour labels,
-        # so the gap has to clear those plus the next panel's title — but at
-        # 0.13 a twelve-preserve grid spent more height on gaps than on lines.
+        # Tighter on the tall grids. Every panel prints its own hour
+        # labels, so the gap has to clear those plus the next panel's
+        # title, but at 0.13 a twelve-preserve grid spent more height on
+        # gaps than on lines.
         vertical_spacing=0.085 if nrows > 2 else 0.16,
         horizontal_spacing=0.06,
     )
@@ -771,27 +775,24 @@ def _roster_text(names: list[str], n_plots: int) -> str:
     """
     Say which plots a grid covers, without printing forty codes.
 
-    Forty comma-separated codes is a wall of text that reads as decoration
-    rather than information, and nothing on screen said what they were. So:
-    the whole network is named as such, a long subset is counted by preserve —
-    which is the unit people actually think in — and only a short selection is
-    listed code by code. The full list stays on the element's tooltip either
-    way.
+    Forty comma-separated codes read as decoration rather than information, and
+    nothing on screen said what they were. The whole network is named as such,
+    a long subset is counted by preserve, which is the unit people think in,
+    and only a short selection is listed code by code. The full list stays on
+    the element's tooltip either way.
     """
     if n_plots <= 1:
-        # A single-plot grid is already titled with that plot.
         return ""
     if n_plots == len(DATA.all_plots):
-        n_preserves = DATA.plots["preserve"].nunique()
-        return f"all {n_plots} plots across {n_preserves} preserves"
+        return (f"all {n_plots} plots across "
+                f"{DATA.plots['preserve'].nunique()} preserves")
     if n_plots <= 8:
         return ", ".join(names)
-
-    chosen = set(names)
-    by_preserve = (DATA.plots[DATA.plots["plot"].isin(chosen)]
-                   .groupby("preserve")["plot"].size().sort_values(ascending=False))
-    parts = [f"{pv} ({n})" for pv, n in by_preserve.items()]
-    return f"{n_plots} plots · " + " · ".join(parts)
+    by_preserve = (DATA.plots[DATA.plots["plot"].isin(set(names))]
+                   .groupby("preserve")["plot"].size()
+                   .sort_values(ascending=False))
+    return (f"{n_plots} plots · "
+            + " · ".join(f"{pv} ({n})" for pv, n in by_preserve.items()))
 
 
 def occupancy_html(panel: dict, effort_label: str,
@@ -993,13 +994,13 @@ def region_map(nodes: pd.DataFrame, sites: pd.DataFrame, codes: list[str],
 
     Static, unlike v1's: the season scrubber is gone because the sidebar's Year
     range and Season chips already say which slice to draw, and two controls
-    for one question is one too many. What the map shows is simply the current
-    filter selection, pooled.
+    for one question is one too many. The map shows the current filter
+    selection, pooled.
 
     No Plotly legend either. Anchored above the plotting area it was drawn over
     the 2px rule under the section heading, and its translucent white panel hid
-    all of that rule except the stub past its last entry — the stray dark line.
-    The species key is page markup now, which also lets it match the design.
+    all of that rule except the stub past its last entry. The species key is
+    page markup now, which also lets it match the design.
 
     Species are their own traces so one can be isolated by click, and stay
     translucent because they are fanned tightly around a shared coordinate and
@@ -1008,20 +1009,15 @@ def region_map(nodes: pd.DataFrame, sites: pd.DataFrame, codes: list[str],
     fig = go.Figure()
 
     # The AudioMoth's actual position, drawn first so the fanned species
-    # bubbles sit over it. Fully opaque and small: a reference point, not a
-    # value.
+    # bubbles sit over it. Opaque and small: a reference point, not a value.
     fig.add_trace(
         _MAP_TRACE(
-            lat=sites["latitude"],
-            lon=sites["longitude"],
-            mode="markers",
+            lat=sites["latitude"], lon=sites["longitude"], mode="markers",
             name="AudioMoth",
             marker=dict(size=5, color=core.RECORDER_DOT, allowoverlap=True),
             customdata=sites[["plot", "preserve"]],
-            hovertemplate=(
-                "<b>%{customdata[0]}</b> · %{customdata[1]}<br>"
-                "AudioMoth position<extra></extra>"
-            ),
+            hovertemplate=("<b>%{customdata[0]}</b> · %{customdata[1]}<br>"
+                           "AudioMoth position<extra></extra>"),
         )
     )
 
@@ -1030,10 +1026,7 @@ def region_map(nodes: pd.DataFrame, sites: pd.DataFrame, codes: list[str],
         pts = _species_points(nodes, code)
         fig.add_trace(
             _MAP_TRACE(
-                lat=pts["lat"],
-                lon=pts["lon"],
-                mode="markers",
-                name=code,
+                lat=pts["lat"], lon=pts["lon"], mode="markers", name=code,
                 marker=dict(
                     size=pts["marker"]["size"],
                     color=core.rgba(rank_colors.get(code, core.ACCENT), 0.85),
@@ -1060,7 +1053,7 @@ def region_map(nodes: pd.DataFrame, sites: pd.DataFrame, codes: list[str],
                         font=dict(family="Archivo", size=12, color="#ffffff")),
         showlegend=False,
         # Constant across reruns, so a filter change elsewhere does not reframe
-        # the map the user has panned.
+        # a map the user has panned.
         uirevision="v2-region",
         **{
             _MAP_LAYOUT_KEY: dict(
@@ -1072,6 +1065,7 @@ def region_map(nodes: pd.DataFrame, sites: pd.DataFrame, codes: list[str],
         },
     )
     return fig
+
 
 
 # ------------------------------------------------------------------ sections

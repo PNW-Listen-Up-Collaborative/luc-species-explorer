@@ -107,7 +107,11 @@ section[data-testid="stSidebar"] .block-container {{ padding-top: 0 !important; 
 /* KPI cards. The one place the design allows a radius. */
 .v2-kpis {{
   display: grid; gap: 16px; margin: 0 0 22px;
-  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  /* Four across at every width. auto-fit reflowed them into 3 + 3 or 2 + 2 as
+     the window narrowed, which moved the cards around under the reader; the
+     value type shrinks instead. minmax(0, 1fr) rather than 1fr so a long
+     number cannot push a column wider than its share. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }}
 .v2-kpi {{
   border: 1px solid {V2_CARD_EDGE}; border-radius: 10px; background: #ffffff;
@@ -116,11 +120,19 @@ section[data-testid="stSidebar"] .block-container {{ padding-top: 0 !important; 
 }}
 .v2-kpi-label {{ font-size: 13px; font-weight: 700; color: {V2_INK}; }}
 .v2-kpi-value {{
-  font-size: clamp(19px, 2.1vw, 32px); font-weight: 700; line-height: 1.15;
+  font-size: clamp(17px, 2.4vw, 32px); font-weight: 700; line-height: 1.15;
   margin-top: 4px; letter-spacing: -0.02em; white-space: nowrap;
   font-variant-numeric: tabular-nums; color: {V2_INK};
 }}
-.v2-kpi-sub {{ font-size: 11.5px; color: {V2_FAINT}; margin-top: 7px; }}
+/* The note is a chip, as the design draws it: it reads as an annotation on
+   the number rather than as a third line of the card. */
+.v2-kpi-sub {{
+  display: inline-block; margin-top: 9px;
+  padding: 3px 9px; border-radius: 6px;
+  background: #f1efee; color: {V2_MUTED};
+  font-size: 11px; line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}}
 
 /* Section heading: title left, scope note right, 2px ink rule beneath. */
 .v2-panelhead {{
