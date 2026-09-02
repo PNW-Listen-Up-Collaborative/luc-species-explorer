@@ -106,6 +106,18 @@ st.markdown(theme_v2.species_chip_css(core.species_colors_by_rank(DATA)),
 
 ALL_SEASONS_LABEL = "All seasons"
 
+# Calendar order, not the order the cache happens to list. Autumn has no
+# recordings yet but keeps its place, so the gap in coverage is visible.
+SEASON_ORDER = ["Spring", "Summer", "Autumn", "Winter"]
+
+# The heatmap's four modes. The first three are counting units and come from
+# core; 'treatment' is a grouping of the daily grid and belongs to this page
+# only, so v1's own toggle is left alone.
+V2_OCC_MODES = {
+    **{m: core.OCC_MODE_LABELS[m] for m in core.OCC_MODES},
+    "treatment": "By Treatment",
+}
+
 
 # --------------------------------------------------------------- app state
 
@@ -125,6 +137,12 @@ def _init_state() -> None:
         occ_granularity=d.occ_granularity,
         hour_facet=d.hour_facet,
         metric=d.metric,
+        # Sections start open. collapsible_head keeps them from here, and
+        # Reset puts them back, which is the behaviour you want: a reset page
+        # should show everything.
+        v2_open_occ=True,
+        v2_open_hour=True,
+        v2_open_map=True,
         # The four checklists write straight to the filter lists above; their
         # individual checkbox keys are created on first render.
     )
@@ -143,7 +161,7 @@ def _reset() -> None:
 def _coerce_segmented_state() -> None:
     last = st.session_state.setdefault("_last_segment", {})
     d = core.default_filters(DATA)
-    for key, valid in {"occ_granularity": list(core.OCC_MODES),
+    for key, valid in {"occ_granularity": list(V2_OCC_MODES),
                        "hour_facet": list(core.HOUR_FACETS)}.items():
         current = st.session_state.get(key)
         if current in valid:
@@ -198,8 +216,16 @@ def _toggle_chip(field: str, value: str, ordering: list) -> None:
 
 
 def _bulk(field: str, ordering: list) -> None:
-    """All or nothing, on the same button — whichever the current state isn't."""
-    st.session_state[field] = [] if st.session_state[field] else list(ordering)
+    """
+    All or nothing, deciding the same way the button's label does.
+
+    It used to branch on whether the list was empty, while the label branched
+    on whether it was full. With two of three seasons selected the button read
+    'Select All' and cleared them, and after a Clear the pair could disagree
+    about what the next click meant.
+    """
+    st.session_state[field] = ([] if len(st.session_state[field]) >= len(ordering)
+                               else list(ordering))
 
 
 def _plots_for(preserves: list[str]) -> list[str]:
@@ -317,7 +343,8 @@ def ctl_label(name: str, value: str) -> None:
 
 
 def chip_row(items: list[tuple[str, str]], selected: list[str], key_prefix: str,
-             field: str, ordering: list, per_row: int = 4) -> None:
+             field: str, ordering: list, per_row: int = 4,
+             tips: dict | None = None, disabled: set | None = None) -> None:
     """
     A wrapping strip of toggle chips.
 
@@ -326,6 +353,7 @@ def chip_row(items: list[tuple[str, str]], selected: list[str], key_prefix: str,
     additionally tinted their own colour by theme_v2.species_chip_css.
     """
     on = set(selected)
+    off = disabled or set()
     for start in range(0, len(items), per_row):
         row = items[start:start + per_row]
         cols = st.columns(per_row)
@@ -338,18 +366,24 @@ def chip_row(items: list[tuple[str, str]], selected: list[str], key_prefix: str,
                     on_click=_toggle_chip,
                     args=(field, value, ordering),
                     use_container_width=True,
+                    # A four-letter code is not a name. The tooltip carries the
+                    # common and scientific ones without widening the chip.
+                    help=(tips or {}).get(value),
+                    disabled=value in off,
                 )
 
 
 def _bulk_list(field: str, ordering: list) -> None:
     """All or nothing, and push the result onto the checkbox widgets."""
-    want = [] if st.session_state[field] else list(ordering)
+    want = ([] if len(st.session_state[field]) >= len(ordering)
+            else list(ordering))
     _SET_ALL[field](want)
 
 
 def checklist_dropdown(label: str, options: list[tuple[str, str]],
                        selected: list[str], key_prefix: str, on_toggle,
-                       field: str, ordering: list) -> None:
+                       field: str, ordering: list,
+                       available: set | None = None) -> None:
     """
     A multi-select dropdown: a full-width trigger showing the count, opening a
     checkbox list under one Clear / Select all action.
@@ -362,9 +396,16 @@ def checklist_dropdown(label: str, options: list[tuple[str, str]],
     One toggling action rather than a pair, matching Season and Species: with
     both buttons present, one of the two was always the no-op.
     """
-    trigger = f"{label} ({len(selected)}/{len(options)})"
+    # The count is out of what is actually available under the current time
+    # and treatment filters, not out of the whole network. Narrowing to 2022
+    # leaves 20 of the 40 plots with nothing recorded, and a control that
+    # still says '40' invites a selection that silently returns nothing.
+    live = available if available is not None else {v for v, _ in options}
+    n_live = sum(1 for v, _ in options if v in live)
+    n_sel = sum(1 for v in selected if v in live)
+    trigger = f"{label} ({n_sel}/{n_live})"
     with st.popover(trigger, use_container_width=True):
-        st.button("Clear" if selected else "Select all",
+        st.button("Clear All" if n_sel >= n_live else "Select All",
                   key=f"{key_prefix}__bulk", on_click=_bulk_list,
                   args=(field, ordering))
         st.markdown('<div class="luc-rule" style="margin:8px 0"></div>',
@@ -373,10 +414,21 @@ def checklist_dropdown(label: str, options: list[tuple[str, str]],
             key = f"{key_prefix}_{value}"
             if key not in st.session_state:
                 st.session_state[key] = value in selected
-            st.checkbox(text, key=key, on_change=on_toggle, args=(value,))
+            off = value not in live
+            st.checkbox(text, key=key, on_change=on_toggle, args=(value,),
+                        disabled=off,
+                        help="No recordings under the current Year Range, "
+                             "Season or Treatment filters" if off else None)
 
 
 def panel_head(title: str, note: str, sub: str = "") -> None:
+    """
+    Title, then the scope note beneath it on the left, then the rule.
+
+    The note used to sit at the right end of the title row, where a wrapping
+    title pushed it into its own corner and it read as unrelated. Under the
+    title it reads as a subtitle of it.
+    """
     st.markdown(
         f'<div class="v2-panelhead"><h2 class="v2-panelh2">{title}</h2>'
         f'<span class="v2-panelnote">{note}</span></div>'
@@ -422,6 +474,11 @@ def section_gap() -> None:
 
 # ------------------------------------------------------------------- sidebar
 
+# The filters as they stand entering this run, used only to work out which
+# preserves and plots have anything to show. The page's own `f` is read after
+# the sidebar, once every control has been drawn.
+_avail_f = current_filters()
+
 with st.sidebar:
     st.markdown(
         '<div class="v2-brand"><div class="v2-kicker">LUC Bioacoustics</div>'
@@ -436,31 +493,44 @@ with st.sidebar:
     # single-value slider a pair, which crashes in the browser.
     _year_slot = st.empty()
     _d = core.default_filters(DATA)
+    if "year_range" not in st.session_state:
+        st.session_state.year_range = (_d.year_from, _d.year_to)
+    # Keyed, so the widget owns its state and a drag registers on the first
+    # try. Without the key its identity changed every time the value did,
+    # which made Streamlit rebuild it mid-drag and drop the change. `value` is
+    # still passed because st.select_slider reads single-versus-range mode
+    # from it, and a tuple in session state alone is not enough.
     y0, y1 = st.select_slider(
-        "Year range", options=DATA.years,
-        value=st.session_state.get("year_range", (_d.year_from, _d.year_to)),
+        "Year range", options=DATA.years, key="year_range",
+        value=st.session_state.year_range,
         label_visibility="collapsed")
-    st.session_state.year_range = (y0, y1)
     tick_row([str(y) for y in DATA.years])
     _year_slot.markdown(
-        f'<div class="v2-ctl"><span class="v2-ctl-name">Year range</span>'
+        f'<div class="v2-ctl"><span class="v2-ctl-name">Year Range</span>'
         f'<span class="v2-ctl-val">{y0} – {y1}</span></div>'
         if y0 != y1 else
-        f'<div class="v2-ctl"><span class="v2-ctl-name">Year range</span>'
+        f'<div class="v2-ctl"><span class="v2-ctl-name">Year Range</span>'
         f'<span class="v2-ctl-val">{y0}</span></div>',
         unsafe_allow_html=True)
 
     ctl_label("Season", f"{len(st.session_state.seasons)}/{len(DATA.seasons)}")
     st.button(
-        "Select all" if len(st.session_state.seasons) < len(DATA.seasons)
-        else "Clear",
+        "Clear All" if len(st.session_state.seasons) >= len(DATA.seasons)
+        else "Select All",
         key="v2_bulk_seas", on_click=_bulk, args=("seasons", list(DATA.seasons)),
     )
-    chip_row([(s, s) for s in DATA.seasons], st.session_state.seasons,
-             "v2seas", "seasons", list(DATA.seasons), per_row=3)
+    # All four seasons are shown, two by two, with any the dataset has no
+    # recordings for greyed out rather than absent. A missing button reads as
+    # a season nobody thought about; a disabled one says the fieldwork has not
+    # covered it yet.
+    chip_row([(s, s) for s in SEASON_ORDER], st.session_state.seasons,
+             "v2seas", "seasons", list(DATA.seasons), per_row=2,
+             tips={s: f"No {s.lower()} recordings yet"
+                  for s in SEASON_ORDER if s not in DATA.seasons},
+             disabled={s for s in SEASON_ORDER if s not in DATA.seasons})
 
-    group_head("Detection quality")
-    ctl_label("Confidence threshold", f"≥ {st.session_state.confidence:.2f}")
+    group_head("Detection Quality")
+    ctl_label("Confidence Threshold", f"≥ {st.session_state.confidence:.2f}")
     # A slider over the four cached thresholds rather than a continuous track:
     # the cache stores one pre-aggregated table per threshold, so a value
     # between them has no data behind it.
@@ -470,18 +540,19 @@ with st.sidebar:
     tick_row([f"{v:.1f}" for v in DATA.meta["thresholds"]])
     # No value on the right here: the radio below already shows which unit
     # is selected, so the blue readout repeated it.
-    st.markdown('<div class="v2-ctl"><span class="v2-ctl-name">Detection unit</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="v2-ctl"><span class="v2-ctl-name">Detection Unit</span></div>', unsafe_allow_html=True)
     st.radio("Detection unit", list(core.METRIC_LABELS), key="metric",
-             format_func=lambda v: core.METRIC_LABELS[v],
+             format_func=lambda v: core.METRIC_UNIT_LABELS[v],
              label_visibility="collapsed", horizontal=True)
 
     group_head("Location")
     st.markdown('<div class="v2-ctl"><span class="v2-ctl-name">Preserve</span>'
                 '</div>', unsafe_allow_html=True)
+    _live_pres = core.preserves_with_effort(DATA, _avail_f)
     checklist_dropdown(
         "Preserve", [(p, p) for p in DATA.preserves],
         st.session_state.preserves, "pres", _toggle_preserve,
-        "preserves", list(DATA.preserves))
+        "preserves", list(DATA.preserves), available=_live_pres)
     _avail_plots = _plots_for(list(st.session_state.preserves))
     st.markdown('<div class="v2-ctl"><span class="v2-ctl-name">Plot</span>'
                 '</div>', unsafe_allow_html=True)
@@ -490,14 +561,15 @@ with st.sidebar:
         [(r.plot, f"{r.plot} · {r.preserve} · {r.treatment_group}")
          for r in DATA.plots.itertuples() if r.plot in set(_avail_plots)],
         st.session_state.plots, "plot", _toggle_plot,
-        "plots", list(_avail_plots))
+        "plots", list(_avail_plots),
+        available=core.plots_with_effort(DATA, _avail_f))
 
     group_head("Species")
     ctl_label("Species",
               f"{len(st.session_state.species)}/{len(DATA.species_codes)}")
     st.button(
-        "Select all" if len(st.session_state.species) < len(DATA.species_codes)
-        else "Clear",
+        "Clear All" if len(st.session_state.species) >= len(DATA.species_codes)
+        else "Select All",
         key="v2_bulk_sp", on_click=_bulk,
         args=("species", list(DATA.species_codes)),
     )
@@ -505,17 +577,20 @@ with st.sidebar:
     # the species, so the chips can be narrow, and the list is expected to grow
     # past twenty.
     chip_row([(c, c) for c in DATA.species_codes], st.session_state.species,
-             "v2sp", "species", list(DATA.species_codes), per_row=5)
+             "v2sp", "species", list(DATA.species_codes), per_row=5,
+             tips={c: f"{c}: {DATA.species_names.get(c, c)}, "
+                     f"{DATA.species_scientific.get(c, '')}"
+                  for c in DATA.species_codes})
 
     group_head("Treatments")
-    st.markdown('<div class="v2-ctl"><span class="v2-ctl-name">Treatment group'
+    st.markdown('<div class="v2-ctl"><span class="v2-ctl-name">Treatment Group'
                 '</span></div>', unsafe_allow_html=True)
     checklist_dropdown(
         "Group", [(g, g) for g in core.TREATMENT_GROUP_CHOICES],
         st.session_state.treatment_periods, "per", _toggle_period,
         "treatment_periods", list(core.TREATMENT_GROUP_CHOICES))
     st.markdown('<div class="v2-ctl"><span class="v2-ctl-name">Treatment '
-                'activity</span></div>', unsafe_allow_html=True)
+                'Activity</span></div>', unsafe_allow_html=True)
     checklist_dropdown(
         "Activity", [(c, c) for c in DATA.treatment_components],
         st.session_state.treatment_components, "tt", _toggle_ttype,
@@ -588,6 +663,74 @@ components.html(
     }, { once: true });
   }, true);
 
+  // ── Testing 1: no text selection while dragging the divider ────────────
+  // The pointer is on a resize handle, but the browser still treats the drag
+  // as a text selection and highlights the whole panel. Suppressed for the
+  // duration of the drag only, so ordinary selection still works.
+  doc.addEventListener('pointerdown', function (e) {
+    const sb = doc.querySelector('section[data-testid="stSidebar"]');
+    if (!sb) return;
+    if (Math.abs(e.clientX - sb.getBoundingClientRect().right) > 14) return;
+    doc.body.style.userSelect = 'none';
+    doc.addEventListener('pointerup', function () {
+      doc.body.style.userSelect = '';
+    }, { once: true });
+  }, true);
+
+  // ── hold the reading position across a rerun ───────────────────────────
+  // Changing a filter resizes the charts above wherever you are reading, and
+  // the browser keeps the scroll offset rather than the content, so a
+  // different section slides into view. CSS scroll anchoring was tried first
+  // and did not take here. This remembers which section heading was nearest
+  // the top of the viewport and where it sat, then puts it back once the
+  // rerun's DOM changes have settled.
+  //
+  // The heading is remembered by its id, not by holding the node. Streamlit
+  // replaces the DOM on every rerun, so a stored element reference is
+  // detached by the time the restore runs and silently does nothing, which is
+  // exactly how this failed the first time. Streamlit derives the id from the
+  // heading text, so it survives the rerun.
+  let anchorId = null;    // which section heading the reader is under
+  let anchorTop = 0;      // and where it sat in the viewport
+  let restoring = false;  // true while we are the ones moving the page
+
+  function headings() {
+    return doc.querySelectorAll('.stMainBlockContainer h2[id]');
+  }
+
+  function noteAnchor() {
+    let best = null;
+    headings().forEach(function (h) {
+      const top = h.getBoundingClientRect().top;
+      // The heading at or just above the top of the viewport is the one the
+      // reader is under.
+      if (top < 140 && (!best || top > best.top)) best = { id: h.id, top: top };
+    });
+    if (best) {
+      anchorId = best.id;
+      anchorTop = best.top;
+    }
+  }
+
+  function restoreAnchor() {
+    if (!anchorId) return;
+    const el = doc.getElementById(anchorId);
+    if (!el) return;
+    const delta = el.getBoundingClientRect().top - anchorTop;
+    if (Math.abs(delta) > 4) scroller2().scrollBy(0, delta);
+  }
+
+  function scroller2() {
+    const main = doc.querySelector('section[data-testid="stMain"]');
+    if (main && main.scrollHeight > main.clientHeight + 1) return main;
+    return doc.scrollingElement || doc.documentElement;
+  }
+
+  noteAnchor();
+  window.parent.addEventListener('scroll', function () {
+    if (!restoring) noteAnchor();
+  }, true);
+
   // ── keep the two top panels level ──────────────────────────────────────
   // Their headings wrap to different numbers of lines, which pushed each
   // column's rule, subtitle and chart to a different height. A CSS min-height
@@ -611,12 +754,33 @@ components.html(
     level('.v2-panelsub');
   }
 
-  // On load, on resize, and whenever Streamlit rerenders the page.
+  // On load, on resize, and whenever Streamlit rerenders the page. Debounced:
+  // Plotly mutates the DOM heavily while a chart draws, and levelling on every
+  // one of those was enough work to compete with dragging a slider.
+  let pending = null;
+  function levelSoon() {
+    if (pending) window.parent.clearTimeout(pending);
+    pending = window.parent.setTimeout(function () {
+      pending = null;
+      levelAll();
+      // Once the rerun has finished redrawing, put the reader back where they
+      // were. Flagged so the scroll it causes is not mistaken for the reader
+      // moving and used to re-record the anchor.
+      // Plotly keeps resizing for a while after Streamlit has finished, so
+      // one restore lands early and the page drifts again. Repeated over the
+      // next second, then the flag is cleared.
+      restoring = true;
+      restoreAnchor();
+      [150, 400, 800].forEach(function (ms) {
+        window.parent.setTimeout(restoreAnchor, ms);
+      });
+      window.parent.setTimeout(function () { restoring = false; }, 900);
+    }, 120);
+  }
   levelAll();
-  window.parent.addEventListener('resize', levelAll);
-  new window.parent.MutationObserver(function () {
-    window.parent.requestAnimationFrame(levelAll);
-  }).observe(doc.body, { childList: true, subtree: true });
+  window.parent.addEventListener('resize', levelSoon);
+  new window.parent.MutationObserver(levelSoon)
+    .observe(doc.body, { childList: true, subtree: true });
 })();
 </script>
 """,
@@ -645,22 +809,43 @@ def kpi(label: str, value: str, note: str) -> str:
             f'<div class="v2-kpi-sub">{note}</div></div>')
 
 
-# Four cards, per the design, not six. Recordings folded into Species Presence
-# as its denominator, where it says something ("23,394 detections across 18,211
-# files") rather than sitting alone; Preserves and Plots share a card because
-# they answer one question, how much of the network this selection reaches.
+def kpi_pair(a_label: str, a_value: str, a_note: str,
+             b_label: str, b_value: str, b_note: str) -> str:
+    """
+    Two figures in one card, side by side.
+
+    Preserves and Plots answer one question, how much of the network the
+    current selection reaches, so they share a card. They keep their own
+    labels and counts rather than being run together as '12 / 40', which read
+    as a fraction of one thing.
+    """
+    half = ('<div class="v2-kpi-half"><div class="v2-kpi-label">{l}</div>'
+            '<div class="v2-kpi-value">{v}</div>'
+            '<div class="v2-kpi-sub">{n}</div></div>')
+    return ('<div class="v2-kpi v2-kpi-split">'
+            + half.format(l=a_label, v=a_value, n=a_note)
+            + half.format(l=b_label, v=b_value, n=b_note)
+            + '</div>')
+
+
+# Four cards, per the design. Recordings folded into Species Presence as its
+# denominator, where it says something rather than sitting alone.
+#
+# Hours Recorded does follow the filters: selecting Burley shows 80, not 2,983.
+# The chip names the whole-project total so the filtered number has something
+# to be read against, rounded because a tenth of an hour is noise here.
 st.markdown(
     '<div class="v2-kpis">'
     + kpi(core.METRIC_LABELS[f.metric], f"{kpis.total_detections:,}",
-          f"per {kpis.n_recordings:,} total 10-min recordings")
+          f"detections from {kpis.n_recordings:,} 10-min recordings")
     + kpi("Hours Recorded", f"{kpis.hours_recorded:,.0f}",
-          f"out of {DATA.meta.get('total_audio_hours', 0):,} total hours")
+          f"out of {DATA.meta.get('total_audio_hours', 0):,.0f} total hours")
     + kpi("Species Richness", f"{kpis.richness}",
-          f"{kpis.richness} of {kpis.n_species_tracked} tracked")
-    + kpi("Preserves &amp; Plots",
-          f"{kpis.n_preserves} / {kpis.active_plots}",
-          f"{kpis.n_preserves} of {len(DATA.preserves)} · "
-          f"{kpis.active_plots} of {len(DATA.all_plots)}")
+          f"out of {kpis.n_species_tracked} tracked")
+    + kpi_pair("Preserves", f"{kpis.n_preserves}",
+               f"out of {len(DATA.preserves)}",
+               "Plots", f"{kpis.active_plots}",
+               f"out of {len(DATA.all_plots)}")
     + "</div>",
     unsafe_allow_html=True,
 )
@@ -668,9 +853,13 @@ st.markdown(
 
 # ------------------------------------------------------------------- charts
 
-def line_chart(series: list[dict], buckets: list[str], decimals: int = 0) -> go.Figure:
+def line_chart(series: list[dict], buckets: list[str], decimals: int = 0,
+               scope: str = "", full_labels: dict | None = None) -> go.Figure:
     fig = go.Figure()
     fmt = f",.{decimals}f"
+    # The season spelled out, so the hover does not repeat the axis's own
+    # abbreviation back at the reader.
+    names = [(full_labels or {}).get(b, b) for b in buckets]
     for s in series:
         fig.add_trace(
             go.Scatter(
@@ -679,21 +868,33 @@ def line_chart(series: list[dict], buckets: list[str], decimals: int = 0) -> go.
                 mode="lines+markers",
                 name=s["label"],
                 line=dict(color=s["color"], width=2.5, shape="linear"),
-                marker=dict(size=7, color=s["color"],
+                # A point larger than the line, so a single selected season
+                # still reads as a value rather than as a dot on an axis.
+                marker=dict(size=8, color=s["color"],
                             line=dict(color="#ffffff", width=1.5)),
                 fill="tozeroy",
                 fillcolor=core.rgba(s["color"], 0.08),
+                customdata=names,
                 hovertemplate=(
-                    f"<b>{s['label']}</b><br>%{{x}}: %{{y:{fmt}}}<extra></extra>"
+                    "<b>%{customdata}</b><br>"
+                    f"{s['label']}: %{{y:{fmt}}}"
+                    + (f"<br><span style='font-size:11px'>{scope}</span>"
+                       if scope else "")
+                    + "<extra></extra>"
                 ),
             )
         )
     fig.update_layout(**theme.plotly_layout())
-    fig.update_yaxes(title=None, rangemode="tozero")
+    fig.update_xaxes(title=dict(text="Season-Year",
+                                font=dict(size=12, color=core.NEUTRAL_600)))
+    fig.update_yaxes(title=dict(text="Count",
+                                font=dict(size=12, color=core.NEUTRAL_600)),
+                     rangemode="tozero")
     return fig
 
 
-def bar_chart(bars: pd.DataFrame, decimals: int = 0, unit: str = "detections") -> go.Figure:
+def bar_chart(bars: pd.DataFrame, decimals: int = 0, unit: str = "detections",
+              scope: str = "") -> go.Figure:
     fmt = f",.{decimals}f"
     # Each species keeps the colour it has on the Region map. Both key off the
     # whole-dataset detection rank, not the current sort, so a species does not
@@ -708,14 +909,30 @@ def bar_chart(bars: pd.DataFrame, decimals: int = 0, unit: str = "detections") -
             text=[f"{v:{fmt}}" for v in bars["detections"]],
             textposition="outside",
             textfont=dict(size=11, color=core.INK, family="Archivo"),
-            customdata=bars["name"],
+            # Code, common name and scientific name together: the four-letter
+            # code is what the axis shows and what people search for, but it
+            # is not what most readers recognise.
+            customdata=[
+                [f"{r.species_code}: {r.name}",
+                 DATA.species_scientific.get(r.species_code, "")]
+                for r in bars.itertuples()
+            ],
             hovertemplate=(
-                f"<b>%{{x}}</b>  %{{customdata}}<br>%{{y:{fmt}}} {unit}<extra></extra>"
+                "<b>%{customdata[0]}</b>"
+                "<br><i>%{customdata[1]}</i>"
+                f"<br>%{{y:{fmt}}} {unit}"
+                + (f"<br><span style='font-size:11px'>{scope}</span>"
+                   if scope else "")
+                + "<extra></extra>"
             ),
         )
     )
     fig.update_layout(**theme.plotly_layout())
-    fig.update_yaxes(title=None, rangemode="tozero")
+    fig.update_xaxes(title=dict(text="Species Code",
+                                font=dict(size=12, color=core.NEUTRAL_600)))
+    fig.update_yaxes(title=dict(text="Count",
+                                font=dict(size=12, color=core.NEUTRAL_600)),
+                     rangemode="tozero")
     fig.update_traces(width=0.56)
     return fig
 
@@ -734,6 +951,25 @@ def hourly_chart(curves: pd.DataFrame, facets: list, facet_label: str,
     n = len(facets)
     ncols = 1 if n == 1 else (2 if n <= 4 else 3)
     nrows = math.ceil(n / ncols)
+    # 'Split by Plot' asks for 40 panels; at the height a four-panel grid uses
+    # that is a page and a half of scrolling, so the rows get shorter and the
+    # lines thinner rather than the grid simply growing.
+    dense = n > 12
+    # A third-width panel cannot take six rotated hour labels without the
+    # labels reaching into the next row's title, whatever the gap. Three
+    # across is the threshold, not twelve panels: an eight-panel preserve grid
+    # is just as narrow as a forty-panel plot grid.
+    tight = ncols == 3
+    row_h = 190 if dense else 270
+    total_h = row_h * nrows + 90
+
+    # Spacing is a fraction of the *whole figure*, not of a row, so it is
+    # specified in pixels and converted. The gap has to clear the panel's hour
+    # labels and the following panel's title. Dense grids need less: their
+    # labels lie flat and only every second hour is drawn.
+    gap_px = 62 if tight else 78
+    v_gap = min(gap_px / total_h, 0.8 / max(nrows - 1, 1))
+    h_gap = min(0.035, 0.8 / max(ncols - 1, 1))
     fig = make_subplots(
         rows=nrows, cols=ncols, shared_xaxes=False, shared_yaxes=True,
         subplot_titles=[str(v) for v in facets],
@@ -741,8 +977,10 @@ def hourly_chart(curves: pd.DataFrame, facets: list, facet_label: str,
         # labels, so the gap has to clear those plus the next panel's
         # title, but at 0.13 a twelve-preserve grid spent more height on
         # gaps than on lines.
-        vertical_spacing=0.085 if nrows > 2 else 0.16,
-        horizontal_spacing=0.06,
+        vertical_spacing=v_gap,
+        # Tighter across than down: the panels share a y-scale, so the gap
+        # only has to clear the leftmost column's tick labels.
+        horizontal_spacing=h_gap,
     )
     rank_colors = core.species_colors_by_rank(DATA)
 
@@ -759,13 +997,16 @@ def hourly_chart(curves: pd.DataFrame, facets: list, facet_label: str,
                     mode="lines+markers", name=code,
                     legendgroup=code,
                     showlegend=(i == 0),   # one legend entry per species
-                    line=dict(color=rank_colors.get(code, core.ACCENT), width=2),
-                    marker=dict(size=5),
+                    line=dict(color=rank_colors.get(code, core.ACCENT),
+                              width=1.2 if dense else 2),
+                    marker=dict(size=3 if dense else 5),
                     customdata=line[["days_detected", "days_sampled"]],
                     hovertemplate=(
-                        f"<b>{code}</b> · {value}<br>%{{x}}:00 · %{{y:.1f}}%"
+                        f"<b>{code}: {DATA.species_names.get(code, code)}</b>"
+                        f"<br><i>{DATA.species_scientific.get(code, '')}</i>"
+                        f"<br>{value} · %{{x}}:00 · %{{y:.1f}}%"
                         "<br>%{customdata[0]:,.0f} of %{customdata[1]:,.0f} "
-                        "plot-days<extra></extra>"
+                        "recorder-days<extra></extra>"
                     ),
                 ),
                 row=r + 1, col=c + 1,
@@ -773,7 +1014,7 @@ def hourly_chart(curves: pd.DataFrame, facets: list, facet_label: str,
 
     fig.update_layout(**theme.plotly_layout())
     fig.update_layout(
-        height=270 * nrows + 90,
+        height=total_h,
         legend=dict(orientation="h", yanchor="bottom", y=1.04,
                     xanchor="left", x=0, font=dict(size=11)),
         margin=dict(l=10, r=10, t=70, b=40),
@@ -783,13 +1024,40 @@ def hourly_chart(curves: pd.DataFrame, facets: list, facet_label: str,
     # each panel prints its own labels, which also unlinks the ranges, and a
     # preserve recorded over fewer hours would otherwise be drawn wider.
     shown = [h for h in hours if h in set(curves["hour"])] or list(hours)
-    fig.update_xaxes(tickmode="array", tickvals=hours,
-                     ticktext=[f"{h}:00" for h in hours],
+    # Six labels do not fit across a third-width panel, so on the dense grids
+    # every second hour is labelled and the text lies flat. Rotated labels
+    # were what pushed the panels into each other.
+    ticks = hours[::2] if tight else hours
+    fig.update_xaxes(tickmode="array", tickvals=ticks,
+                     ticktext=[f"{h}:00" for h in ticks],
+                     tickangle=0 if tight else -45,
                      range=[min(shown) - 0.4, max(shown) + 0.4],
                      title=None, showgrid=True)
-    fig.update_yaxes(range=[0, 105], ticksuffix="%", title=None)
-    for a in fig.layout.annotations:      # subplot titles
-        a.font.size = 13
+    # Quartiles, not just the thirds Plotly picks: 25 and 75 are the readings
+    # people actually want off an occupancy curve.
+    fig.update_yaxes(range=[0, 105], ticksuffix="%", title=None,
+                     tickmode="array", tickvals=[0, 25, 50, 75, 100])
+    # No 'Hour' title at all. Every panel already prints 4:00 to 9:00 beneath
+    # itself, so the word was restating the labels while pushing the next
+    # panel's title into them. '% Occupancy' stays, but only down the left:
+    # the y-scale is shared, so repeating it mid-grid labelled an axis with no
+    # ticks beside it.
+    fig.update_xaxes(title=None)
+    fig.update_yaxes(title=None)
+    fig.update_yaxes(title=dict(text="% Occupancy",
+                                font=dict(size=10, color=core.NEUTRAL_600)),
+                     col=1)
+    for ann in fig.layout.annotations:    # subplot titles
+        ann.font.size = 12 if dense else 15
+    # One species at a time, picked up anywhere along its line rather than
+    # only on the 5px marker. 'x unified' was tried and was wrong: it answers
+    # "what was every species doing at 7:00", which buries the one line the
+    # pointer is actually on under seven others. 'closest' answers "what is
+    # this line doing here", and the generous hover distance means the line
+    # itself is the target, not the dot. Readings still land on whole hours,
+    # because that is where the data is; hovering at 7:30 reports 7:00 or
+    # 8:00, whichever is nearer.
+    fig.update_layout(hovermode="closest", hoverdistance=25)
     return fig
 
 
@@ -825,8 +1093,31 @@ def _roster_text(names: list[str], n_plots: int) -> str:
             + " · ".join(f"{pv} ({n})" for pv, n in by_preserve.items()))
 
 
+def _panel_treatment_html(names: list[str], f: core.Filters) -> str:
+    """
+    The treatment periods and activities for one panel's own plots.
+
+    The strip at the top of the section pools every selected plot, which is
+    the right summary for a single grid but wrong once By Treatment splits the
+    page: GCP-D and GCP-G can have had different work done, and reading one
+    plot's grid against the other's activities is worse than having none.
+    """
+    rows = []
+    for t in core.treatment_summary(DATA, core.replace(f, plots=tuple(names))):
+        label = t["display"] or t["period"].capitalize()
+        types = (f'<details class="luc-treatmore"><summary>{t["types"]}'
+                 f'</summary>{t["types_full"]}</details>'
+                 if t["truncated"] else f'<span>{t["types"]}</span>')
+        rows.append(f'<span class="luc-treatitem">'
+                    f'<span class="luc-treatkey">{label}</span>'
+                    f'<span class="luc-treattype">{types}</span></span>')
+    return (f'<div class="luc-treatbar luc-treatbar-panel">{"".join(rows)}</div>'
+            if rows else "")
+
+
 def occupancy_html(panel: dict, effort_label: str,
-                   rate_mode: bool = False) -> str:
+                   rate_mode: bool = False, scope: str = "",
+                   filters: core.Filters | None = None) -> str:
     """
     CSS-grid heatmap for one panel.
 
@@ -865,6 +1156,10 @@ def occupancy_html(panel: dict, effort_label: str,
     if roster:
         out.append(f'<div class="luc-occ-roster" title="{", ".join(names)}">'
                    f'<span class="luc-occ-rosterkey">Plots</span>{roster}</div>')
+    # Only on a grouped panel: on a single grid this would repeat the strip
+    # already sitting above the section.
+    if panel["label"] and filters is not None and names:
+        out.append(_panel_treatment_html(names, filters))
 
     # No divider between periods: the colour ramp already distinguishes them,
     # and a rule would imply the columns are not one continuous timeline.
@@ -874,7 +1169,9 @@ def occupancy_html(panel: dict, effort_label: str,
     out.append(f'<div class="luc-occ" style="grid-template-columns:{cols}">')
     # The corner cell was empty while the column beneath it held four-letter
     # codes with nothing saying what they were.
-    out.append('<div class="luc-occ-corner">Species<br>code</div>')
+    out.append('<div class="luc-occ-corner">Species code<br>'
+               '<span class="luc-occ-cornerx">by season-year &#8594;</span>'
+               '</div>')
     parts = core.bucket_label_parts(DATA)
     for ci, col in enumerate(columns):
         season, years = parts.get(col["bucket"], (col["label"], ""))
@@ -935,6 +1232,7 @@ def occupancy_html(panel: dict, effort_label: str,
                     )
                 continue
             v = float(v)
+            season_full = core.bucket_full_label(DATA, col["bucket"])
             if rate_mode:
                 # Counts are unbounded, so the ramp is scaled to the largest
                 # value on screen rather than to 100.
@@ -944,15 +1242,17 @@ def occupancy_html(panel: dict, effort_label: str,
                 out.append(
                     f'<div class="luc-occ-cell" style="background:{bg};'
                     f'color:{_readable_on(bg)};{edge(ci)}" '
-                    f'title="{code} · {where}: {v:,.0f} recordings over '
-                    f'{days:,.0f} sampling days{per}">{v:,.0f}</div>'
+                    f'title="{code} — {name}&#10;{season_full}&#10;'
+                    f'{v:,.0f} recordings over {days:,.0f} sampling days{per}'
+                    f'&#10;{scope}">{v:,.0f}</div>'
                 )
             else:
                 bg = core.ramp_color(col["ramp"], v / 100)
                 out.append(
                     f'<div class="luc-occ-cell" style="background:{bg};'
                     f'color:{_readable_on(bg)};{edge(ci)}" '
-                    f'title="{code} · {where}: {v:.1f}%">{v:.0f}</div>'
+                    f'title="{code} — {name}&#10;{season_full}&#10;'
+                    f'{v:.1f}% occupancy&#10;{scope}">{v:.0f}</div>'
                 )
 
     out.append("</div>")
@@ -1018,7 +1318,7 @@ def _species_points(nodes: pd.DataFrame, code: str) -> dict:
 
 
 def region_map(nodes: pd.DataFrame, sites: pd.DataFrame, codes: list[str],
-               effort_label: str) -> go.Figure:
+               effort_label: str, scope: str = "") -> go.Figure:
     """
     Real basemap from the dataset's plot coordinates, one bubble per species.
 
@@ -1064,10 +1364,13 @@ def region_map(nodes: pd.DataFrame, sites: pd.DataFrame, codes: list[str],
                 ),
                 customdata=pts["customdata"],
                 hovertemplate=(
-                    "<b>%{customdata[2]}</b> (" + code + ")<br>"
-                    "%{customdata[0]} · %{customdata[1]}<br>"
-                    "%{customdata[3]:.1f}% occupancy over "
+                    f"<b>{code}: {DATA.species_names.get(code, code)}</b>"
+                    f"<br><i>{DATA.species_scientific.get(code, '')}</i>"
+                    "<br>%{customdata[0]} · %{customdata[1]}"
+                    "<br>%{customdata[3]:.1f}% occupancy over "
                     "%{customdata[4]:,.0f} " + effort_label.lower()
+                    + (f"<br><span style='font-size:11px'>{scope}</span>"
+                       if scope else "")
                     + "<extra></extra>"
                 ),
             )
@@ -1109,6 +1412,36 @@ def empty_note(msg: str = "No detections match the current filters. Widen the "
     st.markdown(f'<div class="luc-empty">{msg}</div>', unsafe_allow_html=True)
 
 
+def _toggle_section(key: str) -> None:
+    st.session_state[key] = not st.session_state[key]
+
+
+def collapsible_head(title: str, key: str, ratio=(3, 1.5)):
+    """
+    Section heading with a disclosure arrow, and a slot for its own control.
+
+    The three big sections run to several screens each, so reaching the map
+    means scrolling past forty line charts. Collapsing is cheaper than
+    scrolling and cheaper than paging: the sections stay on one page, in one
+    order, and a shut one costs a single row.
+
+    Returns (open, control_slot). The control is only drawn when the section
+    is open, since a mode toggle for something you cannot see is noise.
+    """
+    st.session_state.setdefault(key, True)
+    is_open = st.session_state[key]
+    c_arrow, c_title, c_ctl = st.columns(
+        [0.28, ratio[0], ratio[1]], vertical_alignment="center")
+    with c_arrow:
+        st.button("▾" if is_open else "▸", key=f"{key}__toggle",
+                  on_click=_toggle_section, args=(key,),
+                  help="Hide this section" if is_open else "Show this section")
+    with c_title:
+        st.markdown(f'<h2 class="v2-panelh2">{title}</h2>',
+                    unsafe_allow_html=True)
+    return is_open, c_ctl
+
+
 def head_row(title: str, ratio=(3, 1.5)):
     """Heading with room for a control on the right, then the 2px ink rule."""
     left, right = st.columns(ratio, vertical_alignment="center")
@@ -1128,94 +1461,134 @@ col_time, col_species = st.columns(2)
 
 with col_time:
     panel_head(
-        "Total Detections Over Time", "Per season",
-        f"{core.metric_phrase(DATA, f).capitalize()}, raw count per season. "
-        f"Not corrected for survey effort.")
+        "Total Detections Over Time", "Per season over time",
+        "Total raw count of species detections per season, over the years. "
+        "NOT corrected for variability in survey effort (days recorded and "
+        "number of devices).")
     if NO_DATA:
         empty_note()
     else:
         series, buckets = core.build_series(
             DATA, core.replace(f, graph_type="trends"), rows, "detections")
-        st.plotly_chart(line_chart(series, buckets), use_container_width=True,
-                        config=PLOT_CFG, key="v2_trends")
+        st.plotly_chart(
+            line_chart(series, buckets,
+                       scope=core.hover_scope(DATA, f, seasons=False),
+                       full_labels={b: core.bucket_full_label(DATA, b)
+                                    for b in buckets}),
+            use_container_width=True, config=PLOT_CFG, key="v2_trends")
 
 with col_species:
-    panel_head("Total Detections By Species", "Ranked",
-               "Ranked across the selected range. Not corrected for survey "
-               "effort.")
+    panel_head(
+        "Total Detections By Species", "Aggregated &amp; ranked",
+        "Aggregated and ranked total raw counts per species. NOT corrected "
+        "for variability in survey effort (days recorded and number of "
+        "devices).")
     if NO_DATA:
         empty_note()
     else:
         st.plotly_chart(
             bar_chart(core.species_bars(DATA, f, rows),
-                      unit=core.metric_phrase(DATA, f)),
+                      unit=core.metric_phrase(DATA, f),
+                      scope=core.hover_scope(DATA, f)),
             use_container_width=True, config=PLOT_CFG, key="v2_species")
 
 section_gap()
 
 
 # ── occupancy heatmap ─────────────────────────────────────────────────────
-_occ_slot = head_row(core.panel_copy(DATA, f)[0])
+_occ_open, _occ_slot = collapsible_head(core.panel_copy(DATA, f)[0],
+                                       "v2_open_occ")
 with _occ_slot:
-    st.segmented_control(
-        "Granularity", core.OCC_MODES, key="occ_granularity",
-        label_visibility="collapsed",
-        format_func=lambda v: core.OCC_MODE_LABELS[v],
-        help="Daily/Hourly % are occupancy, the share of sampling days a "
-             "species was detected on. Count is recordings containing it, "
-             "which keeps separating species after occupancy saturates.",
-    )
+    if _occ_open:
+        st.segmented_control(
+            "Granularity", list(V2_OCC_MODES), key="occ_granularity",
+            label_visibility="collapsed",
+            format_func=lambda v: V2_OCC_MODES[v],
+            help="Daily and Hourly % are occupancy: the share of surveyed "
+                 "days, or surveyed hours, a species was detected in. Count "
+                 "is the number of recordings containing it, which keeps "
+                 "separating species after occupancy has saturated. By "
+                 "Treatment splits the daily grid into control, "
+                 "pre-treatment and post-treatment.",
+        )
 # The toggle above may have changed the mode, so the filters are re-read
 # before anything is drawn from them.
 f = current_filters()
-head_rule(core.panel_copy(DATA, f)[1])
+# 'By Treatment' is a grouping, not a counting unit: it draws the daily grid
+# split by treatment period. Everything downstream reads occ_granularity, so
+# the mode is translated here rather than taught to each of them.
+f_occ = (core.replace(f, occ_granularity="daily",
+                      compare_by="treatment_group")
+         if f.occ_granularity == "treatment" else f)
+head_rule(core.panel_copy(DATA, f_occ)[1] if _occ_open else "")
 
-if NO_DATA:
+if not _occ_open:
+    pass
+elif NO_DATA:
     empty_note()
 else:
-    # Treatment context, as plain text: with no Compare by in v2 the period
-    # ramps are never on screen, so a colour key would point at nothing.
-    _items = "".join(
-        f'<span class="luc-treatitem">'
-        f'<span class="luc-treatkey">{t["display"]}</span>'
-        f'<span class="luc-treattype">{t["types"]}</span></span>'
-        for t in core.treatment_summary(DATA, f) if t["display"]
-    )
-    st.markdown(f'<div class="luc-treatbar">{_items}</div>',
+    # Treatment context, as plain text. It briefly carried a colour swatch per
+    # period, keyed to that period's ramp, but each ramp runs light to dark
+    # within itself, so a pale cell in the post-treatment grid looked like the
+    # pale pre-treatment swatch. Each grid is titled with its own period
+    # instead, which says the same thing without inviting that reading.
+    _items = []
+    for t in core.treatment_summary(DATA, f_occ):
+        label = t["display"] or t["period"].capitalize()
+        # A '+8 more' that cannot be opened just says information is being
+        # withheld, so the full list is one click away in a native disclosure.
+        types = (f'<details class="luc-treatmore"><summary>{t["types"]}'
+                 f'</summary>{t["types_full"]}</details>'
+                 if t["truncated"] else f'<span>{t["types"]}</span>')
+        _items.append(f'<span class="luc-treatitem">'
+                      f'<span class="luc-treatkey">{label}</span>'
+                      f'<span class="luc-treattype">{types}</span></span>')
+    st.markdown(f'<div class="luc-treatbar">{"".join(_items)}</div>',
                 unsafe_allow_html=True)
 
-    _panels = core.occupancy_panels(DATA, f, rows)
+    _panels = core.occupancy_panels(DATA, f_occ, rows)
     if not _panels:
         empty_note("No groups to compare under the current filters.")
     else:
-        _effort = core.OCC_EFFORT_LABELS[f.occ_granularity]
+        _effort = core.OCC_EFFORT_LABELS[f_occ.occ_granularity]
         for i, panel in enumerate(_panels):
             if i:
                 st.markdown('<div class="luc-occ-spacer"></div>',
                             unsafe_allow_html=True)
-            st.markdown(occupancy_html(panel, _effort, core.is_rate_mode(f)),
+            st.markdown(occupancy_html(panel, _effort,
+                                       core.is_rate_mode(f_occ),
+                                       scope=core.hover_scope(DATA, f_occ),
+                                       filters=f_occ),
                         unsafe_allow_html=True)
-    st.markdown(f'<div class="luc-occ-note">{core.occupancy_note(DATA, f)}</div>',
-                unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="luc-occ-note">{core.occupancy_note(DATA, f_occ)}</div>',
+        unsafe_allow_html=True)
 
 section_gap()
 
 
 # ── occupancy rate by hour ────────────────────────────────────────────────
-_hour_slot = head_row("Occupancy Rate By Hour")
+_hour_open, _hour_slot = collapsible_head(
+    "Occupancy Rate By Hour (%)", "v2_open_hour", ratio=(2, 1.5))
 with _hour_slot:
-    st.segmented_control(
-        "Facet", list(core.HOUR_FACETS), key="hour_facet",
-        label_visibility="collapsed",
-        format_func=lambda v: core.HOUR_FACETS[v],
-        help="Which grid the hours are split into: one panel per year, per "
-             "season, or per preserve.",
-    )
+    if _hour_open:
+        # A dropdown rather than a button row: six facets will not fit as
+        # segments at any sensible width, and more may follow.
+        st.selectbox(
+            "Split by", list(core.HOUR_FACETS), key="hour_facet",
+            format_func=lambda v: core.HOUR_FACETS[v],
+            label_visibility="collapsed",
+            help="One panel per year, season, preserve, plot, treatment group "
+                 "or treatment activity.",
+        )
 f = current_filters()
-head_rule("Plot-days detected ÷ plot-days sampled, at each clock hour")
+head_rule("For each hour of the morning, the share of recorder-days on which "
+          "a species was heard in that hour." if _hour_open else "")
 
 _codes = [c for c in core.species_rank(DATA) if c in set(f.species)]
-if NO_DATA or not _codes:
+if not _hour_open:
+    pass
+elif NO_DATA or not _codes:
     empty_note()
 else:
     _curves = core.hourly_curves(DATA, f, f.hour_facet)
@@ -1223,18 +1596,39 @@ else:
     if _curves.empty or not _facets:
         empty_note("No recordings match the current filters.")
     else:
+        species_key(_codes)
         st.plotly_chart(hourly_chart(_curves, _facets, f.hour_facet, _codes),
                         use_container_width=True, config=PLOT_CFG,
                         key="v2_hourly")
+        st.markdown(
+            '<div class="luc-occ-note"><b>Occupancy Rate By Hour</b> = '
+            'recorder-days a species was detected in that clock hour ÷ '
+            'recorder-days recorded in that hour.<br>'
+            'One recorder-day is one plot on one date, so a morning covered '
+            'by eight recorders counts eight times as much listening as one '
+            'covered by a single recorder. This is deliberately not the '
+            'sampling-days rule the heatmap above uses: pooled over many '
+            'plots that rule sits above 90% for common species and the daily '
+            'rhythm disappears. A line stops where the fieldwork did, so an '
+            'hour that was never recorded draws no point rather than a '
+            'zero.</div>',
+            unsafe_allow_html=True)
 
 section_gap()
 
 
 # ── map ───────────────────────────────────────────────────────────────────
-panel_head("Species Presence By Plot", "Occupancy per species")
+_map_open, _ = collapsible_head("Species Presence By Plot", "v2_open_map")
+head_rule(
+    "Where the recorders are, and how often each species was detected at each "
+    "of them. Bubble size is the occupancy rate: the share of surveyed days "
+    "that species was heard on at that plot, so plots recorded for very "
+    "different lengths of time can be compared." if _map_open else "")
 
 _sites = core.region_sites(DATA, f)
-if _sites.empty or NO_DATA or not _codes:
+if not _map_open:
+    pass
+elif _sites.empty or NO_DATA or not _codes:
     empty_note("No plots selected.")
 else:
     _daily = core.OCC_EFFORT_LABELS["daily"]
@@ -1244,8 +1638,10 @@ else:
     # it ambiguous which was in charge.
     _nodes = core.region_species_nodes(DATA, f, rows)
     species_key(_codes)
-    st.plotly_chart(region_map(_nodes, _sites, _codes, _daily),
-                    use_container_width=True, key="v2_map", config=PLOT_CFG)
+    st.plotly_chart(
+        region_map(_nodes, _sites, _codes, _daily,
+                   scope=core.hover_scope(DATA, f)),
+        use_container_width=True, key="v2_map", config=PLOT_CFG)
     # Attribution is required by OpenStreetMap. The basemap's built-in control
     # is hidden in theme_v2 — it sat inside the frame at a size that fought the
     # map — and re-stated here, flush to the bottom right.
@@ -1255,38 +1651,136 @@ else:
         'rel="noopener">OpenStreetMap</a> contributors</div>',
         unsafe_allow_html=True)
     st.caption(
-        f"{len(_sites)} plots across {_sites['preserve'].nunique()} preserves. "
-        f"Bubble size is occupancy over the selected seasons."
+        f"{len(_sites)} plots across {_sites['preserve'].nunique()} preserves, "
+        f"pooled over the selected seasons. Black dots are the AudioMoths' "
+        f"true positions; species bubbles are fanned around them so they do "
+        f"not stack, and the commonest species is drawn underneath."
     )
 
 
 # ------------------------------------------------------------- methodology
 
-st.markdown(
-    f'<div class="luc-footnote">'
-    f'{DATA.meta["n_detection_rows"]:,} raw detections across '
-    f'{DATA.meta["n_recordings"]:,} recordings · confidence thresholds computed '
-    f'per-row from the source table · detection metric is summed 0/1 presence '
-    f'per recording × species.</div>',
-    unsafe_allow_html=True,
-)
-
-# Only the chart-reading notes live here; everything else comes from
-# core.methodology(), which v1 shares. These four were captions under the
-# charts and crowded the page.
-READING_THE_CHARTS = [
-    ("The two top charts",
-     "Raw counts, not corrected for effort. Seasons differ in days recorded "
-     "and plots deployed, and no plot ran in every season."),
-    ("The species ranking",
-     "Species are not equally detectable. Read it as what BirdNET heard most, "
-     "not what is most abundant."),
-    ("Occupancy Rate By Hour",
-     "Plot-days detected ÷ plot-days sampled, where a plot-day is one "
-     "recorder on one date. Not the union rule above."),
-    ("Species Presence By Plot",
-     "Bubble size is occupancy. Black dots are the AudioMoths; species are "
-     "fanned around them so they do not stack."),
+# v2 carries its own methodology rather than calling core.methodology(),
+# which v1 still uses. The two pages offer different controls, so a shared
+# text would document buttons that are not on screen.
+V2_METHODOLOGY = [
+    ("Detection unit: what counts as one detection", [
+        ("Detection vs No Detection",
+         "A species is counted as detected if BirdNET scores it at or above "
+         "the selected confidence threshold. It is counted as not detected "
+         "below that value. A species may be truly present but counted as not "
+         "detected, depending on the threshold."),
+        ("Species Presence",
+         "At least one species detection in one 10-min recording, counted "
+         "0/1, depending on the confidence threshold setting. A bird heard "
+         "forty times in a ten-minute file counts once; a file holding three "
+         "species contributes three."),
+        ("Raw 10-min Detections",
+         "The number of 10-minute recordings a species was detected in. This "
+         "is the unit behind most of the charts here, including the Count "
+         "heatmap and the two totals at the top of the page."),
+        ("Raw 3-sec BirdNET-Analyzer Detections",
+         "Every three-second window BirdNET scored above the threshold, "
+         "counted separately. Roughly twelve times higher than presence, and "
+         "it favours persistent singers over widespread ones."),
+    ]),
+    ("Occupancy", [
+        ("Sampling Days",
+         "Distinct dates where recording occurred at a selected plot. The "
+         "union across plots, not the sum: five recorders over the same "
+         "sixteen dates is sixteen days."),
+        ("Days Detected",
+         "Distinct dates the species was detected at a selected plot."),
+        ("Daily Occupancy Rate (%)",
+         "Days detected ÷ sampling days. Example: Grovers in Summer 2022, "
+         "BEWR on 14 of 16 dates, so 87.5%."),
+        ("Hourly Occupancy Rate (%)",
+         "Hours detected ÷ sampling hours. A sampling hour is a distinct date "
+         "and clock-hour on which a selected plot recorded, so a morning "
+         "covered from 5:00 to 9:00 contributes five sampling hours. It "
+         "answers how much of the recorded morning a species was audible in, "
+         "where the daily rate answers on how many mornings it was audible "
+         "at all."),
+        ("NA versus 0%",
+         "0% means no species detections at that confidence threshold. NA "
+         "means no sampling effort, so no recordings, during that time."),
+    ]),
+    ("Confidence threshold", [
+        ("Confidence Threshold",
+         "Keeps only detections scoring at or above the chosen value. A "
+         "higher threshold keeps only high-confidence detections, which tends "
+         "to reduce false positives (raising precision) but also discards "
+         "some true positives that scored low (lowering recall)."),
+    ]),
+    ("Effort and coverage", [
+        ("Number of Recordings",
+         "Audio files across the selected plots and dates. Files containing "
+         "no detection at all still count as effort."),
+        ("Hours Recorded",
+         "Hours of actual audio, derived from file size rather than from the "
+         "recording schedule, since files run slightly short."),
+        ("Time of Day",
+         "Recording runs in a dawn-chorus window rather than a full day, so "
+         "every hourly chart covers the morning only."),
+        ("Species Richness",
+         "How many of the tracked species were detected at least once under "
+         "the current filters. Never divided by effort, but it does rise with "
+         "effort, since more listening finds more species."),
+        ("Preserves and Plots",
+         "The preserves and plots the current filters are looking at."),
+    ]),
+    ("Treatment group and treatment type", [
+        ("Control",
+         "Plots never scheduled for treatment. A reference condition rather "
+         "than a point on the before-and-after timeline."),
+        ("Pre-Treatment",
+         "A treatment plot, in the seasons before its treatment date."),
+        ("Post-Treatment",
+         "The same plot, in the seasons after its treatment date. A plot "
+         "treated partway through monitoring contributes to both, which is "
+         "why the group is worked out per date rather than fixed per plot."),
+        ("Treatment Type",
+         "The type of work done at the different treatment plots, where "
+         "applicable. It changes with the treatment date too, so a plot reads "
+         "'none' beforehand and its actual activities afterwards."),
+    ]),
+    ("Reading the charts", [
+        ("Total Detections Over Time",
+         "Raw counts per season-year, not corrected for effort. Seasons "
+         "differ in days recorded and plots deployed, and no plot ran in "
+         "every season, so part of any change here is fieldwork rather than "
+         "birds."),
+        ("Total Detections By Species",
+         "The same raw counts, aggregated over everything selected and ranked. "
+         "Species are not equally detectable, so read it as what BirdNET "
+         "heard most, not what is most abundant."),
+        ("Seasonal Occupancy Rate, Daily %",
+         "For each species and season, the share of surveyed days it was "
+         "detected on. Effort-corrected, so seasons of very different lengths "
+         "are comparable."),
+        ("Seasonal Occupancy Rate, Hourly %",
+         "The same, counting distinct date-and-hour slots instead of dates. "
+         "Finer grained, and it separates species that are present on most "
+         "days but audible only briefly."),
+        ("Total Detections heatmap (Count)",
+         "The raw number of 10-min recordings containing each species. Not "
+         "effort-corrected, so read it against the grey sampling-days row, "
+         "but unlike occupancy it does not saturate at 100%."),
+        ("Seasonal Occupancy Rate, By Treatment",
+         "The daily grid split into control, pre-treatment and post-treatment, "
+         "each with its own colour ramp, so a plot's before and after can be "
+         "compared against a control that was never treated."),
+        ("Occupancy Rate By Hour (%)",
+         "For each hour of the morning, the share of recorder-days a species "
+         "was heard in that hour. Split by year, season, preserve, plot, "
+         "treatment group or treatment activity."),
+        ("Species Presence By Plot",
+         "The map. Black dots are the recorders; bubble size is each species' "
+         "occupancy rate at that plot over the selected seasons."),
+        ("The four header cards",
+         "Detections, hours, richness and network coverage for the current "
+         "selection. All four follow the filters."),
+    ]),
 ]
 
 
@@ -1299,36 +1793,11 @@ def _meth_rows(entries) -> str:
             + "</div>")
 
 
-# Skipped rather than deleted from core.methodology(), which v1 shares and
-# where every one of these is still correct.
-#
-# The section and the first entry document controls v2 does not have: the
-# Total/Per day toggle is gone from this page, and so is the map's
-# sunrise scrubber. Documenting a button that is not on screen is worse than
-# verbose. The rest answer questions this page does not raise: reconciling the
-# presence count against another tally, justifying occupancy over counts, and
-# the provenance of the 0.3 default, which is in DATA_METHODS.md.
-_SKIP_SECTIONS = {"Scale: whether the count is divided by effort"}
-_SKIP_ENTRIES = {
-    "Hours from sunrise",
-    "Not the same as recordings with a detection",
-    "Why occupancy rather than counts",
-    "Default of 0.3",
-}
-
 with st.expander("Methodology: what each control and measure means"):
-    for heading, entries in core.methodology(DATA):
-        if heading in _SKIP_SECTIONS:
-            continue
-        kept = [e for e in entries if e[0] not in _SKIP_ENTRIES]
-        if not kept:
-            continue
+    for heading, entries in V2_METHODOLOGY:
         st.markdown(f'<div class="luc-methhead">{heading}</div>',
                     unsafe_allow_html=True)
-        st.markdown(_meth_rows(kept), unsafe_allow_html=True)
-    st.markdown('<div class="luc-methhead">Reading the charts</div>',
-                unsafe_allow_html=True)
-    st.markdown(_meth_rows(READING_THE_CHARTS), unsafe_allow_html=True)
+        st.markdown(_meth_rows(entries), unsafe_allow_html=True)
     st.markdown(
         '<div class="luc-methnote">Full derivations, source-table joins and '
         'the verification suite are documented in DATA_METHODS.md.</div>',

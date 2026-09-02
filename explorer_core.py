@@ -187,6 +187,11 @@ class Dataset:
         return {s["code"]: s["name"] for s in self.species}
 
     @property
+    def species_scientific(self) -> dict[str, str]:
+        """Binomials, for hover boxes and the species checklist."""
+        return {s["code"]: s.get("scientific", "") for s in self.species}
+
+    @property
     def preserves(self) -> list[str]:
         return list(self.meta["preserves"])
 
@@ -1486,7 +1491,17 @@ def _dispersal_radius_m(plots: pd.DataFrame) -> float:
 
 
 # The hourly activity curve's facets, matching the notebook's three figures.
-HOUR_FACETS = {"year": "Year", "season": "Season", "preserve": "Preserve"}
+# What the hourly grid can be split by. Every one of these is a column already
+# present on the hour-effort table, so a new facet is a label, not a new
+# aggregation.
+HOUR_FACETS = {
+    "year": "Year",
+    "season": "Season",
+    "preserve": "Preserve",
+    "plot": "Plot",
+    "treatment_group": "Treatment Group",
+    "treatment_activity": "Treatment Activity",
+}
 
 
 def hourly_curves(data: Dataset, f: Filters, facet: str = "year") -> pd.DataFrame:
@@ -1518,6 +1533,15 @@ def hourly_curves(data: Dataset, f: Filters, facet: str = "year") -> pd.DataFram
             return df["bucket"].map(season_of)
         if facet == "preserve":
             return df["plot"].map(preserve_of)
+        if facet == "plot":
+            return df["plot"]
+        if facet == "treatment_group":
+            return df["period"]
+        if facet == "treatment_activity":
+            # Date-aware, so a plot treated midway contributes to 'none' in the
+            # seasons before its treatment date and to the real activities
+            # after it. A static per-plot label would misattribute both.
+            return df["period_type"].fillna("unknown")
         return df["bucket"].map(year_of)
 
     eff = _hour_effort_rows(data, f, plots, buckets, data.hours)
@@ -1550,10 +1574,14 @@ def hourly_curves(data: Dataset, f: Filters, facet: str = "year") -> pd.DataFram
     out = pd.DataFrame(recs)
     if out.empty:
         return out
-    # Season keeps its calendar order; year and preserve sort naturally.
+    # Season and treatment group have a meaningful order of their own; the
+    # rest sort naturally.
     if facet == "season":
         order = {s: i for i, s in enumerate(data.seasons)}
         out["_o"] = out["facet"].map(order)
+    elif facet == "treatment_group":
+        order = {g: i for i, g in enumerate(TREATMENT_GROUP_ORDER)}
+        out["_o"] = out["facet"].map(order).fillna(len(order))
     else:
         out["_o"] = out["facet"]
     return out.sort_values(["_o", "species_code", "hour"]).drop(columns="_o")
@@ -2149,6 +2177,45 @@ def subtitle_text(data: Dataset, f: Filters) -> str:
     )
 
 
+def bucket_full_label(data: Dataset, bucket: str) -> str:
+    """'Wi'22-23' spelled out as 'Winter 2022-2023', for hover boxes."""
+    season, years = bucket_label_parts(data).get(bucket, (bucket, ""))
+    if "-" in years:
+        first, second = years.split("-", 1)
+        years = f"{first}-{first[:2]}{second}"
+    return f"{season} {years}".strip()
+
+
+def hover_scope(data: Dataset, f: Filters, seasons: bool = True) -> str:
+    """
+    The filter settings behind a point, compact enough for a hover box.
+
+    A tooltip that reports only a number invites the reader to compare it with
+    one they saw under different filters. Naming the scope on the point itself
+    is the cheapest way to stop that.
+    """
+    parts = [f"Conf ≥ {f.confidence}"]
+    if seasons:
+        parts.append("All seasons" if len(f.seasons) == len(data.seasons)
+                     else ", ".join(f.seasons))
+    n_pres, n_all = len(f.preserves), len(data.preserves)
+    parts.append("All sites" if n_pres == n_all
+                 else (f.preserves[0] if n_pres == 1 else f"{n_pres} preserves"))
+    n_grp = len(f.treatment_periods)
+    parts.append("all treatments" if n_grp == len(TREATMENT_GROUP_CHOICES)
+                 else (f.treatment_periods[0] if n_grp == 1
+                       else f"{n_grp} treatment groups"))
+    return " · ".join(parts)
+
+
+# The same two metrics, named with the unit they are counted in. The filter
+# panel uses these; the KPI card and chart copy keep the short labels.
+METRIC_UNIT_LABELS = {
+    "presence": "Species Presence (10-min recordings)",
+    "raw": "Raw Detections (3-sec BirdNET-Analyzer)",
+}
+
+
 def metric_phrase(data: Dataset, f: Filters) -> str:
     """Human-readable description of the active unit, for chart subtitles."""
     unit = metric_unit(data, f.metric)
@@ -2195,34 +2262,67 @@ def occupancy_note(data: Dataset, f: Filters) -> str:
     """Plain-language statement of exactly how the displayed cells were computed."""
     if is_rate_mode(f):
         return (
-            "Count = the number of 10-minute recordings containing the "
-            f"species, at confidence ≥ {f.confidence}, summed across the "
-            "selected plots. One recording counts once however many times the "
-            "bird sings in it. This is a raw total, not corrected for effort. "
-            "read it against the sampling-days row above, since a season with "
-            "twice the survey days will tend to show twice the detections. "
-            "Unlike occupancy it does not saturate, so it still separates "
-            "species that are present every day but heard at very different "
-            "rates. <b>NA</b> means the season had no sampling effort at the "
-            "selected plots, not that the species was absent."
+            "<b>Count</b> = the number of 10-minute recordings containing the "
+            f"species at least once, at confidence ≥ {f.confidence}, summed "
+            "across the selected plots. A species detection only counts once "
+            "in a 10-min recording, no matter how many times the species "
+            "vocalizes within that time frame. This is a raw total, not "
+            "corrected for survey effort (compare the grey sampling-days row "
+            "above), nor for species vocalization rates, since some species "
+            "vocalize more than others. <b>NA</b> means the season had no "
+            "sampling effort at the selected plots, while <b>0</b> means the "
+            "species was not detected."
         )
     if f.occ_granularity == "hourly":
-        formula = ("Hourly occupancy = hours detected ÷ sampling hours.")
-        unit = ("sampling hour is a distinct (date, clock-hour) on which any "
-                "selected plot recorded")
-    else:
-        formula = ("Daily occupancy = days detected ÷ sampling days.")
-        unit = ("sampling day is a distinct calendar date on which any "
-                "selected plot recorded")
+        return (
+            "<b>Hourly Occupancy</b> = hours a species was detected in ÷ "
+            "total sampling hours at the given location.<br>"
+            "A detection is counted when BirdNET scores the species at "
+            f"confidence ≥ {f.confidence} anywhere in a 10-min recording. One "
+            "sampling hour is a distinct date and clock-hour on which any "
+            "selected plot recorded, so a morning covered from 5:00 to 9:00 "
+            "contributes five sampling hours whether one recorder ran or "
+            "eight. A species claims an hour if it was heard at any selected "
+            "plot. Cells are shaded 0-100%. <b>NA</b> means the season had no "
+            "sampling effort at the selected plots, while <b>0</b> means the "
+            "species was not detected."
+        )
     return (
-        f"{formula} A detection counts when BirdNET scores the species at "
-        f"confidence ≥ {f.confidence} anywhere in a recording; one {unit}, and "
-        "a species claims that date if it was heard at any selected plot. "
-        "Both sides are distinct dates, so five recorders running the same "
-        "sixteen dates is sixteen sampling days, not eighty. "
-        "Cells are shaded 0–100%. <b>NA</b> means the season had no sampling "
-        "effort at the selected plots, not that the species was absent."
+        "<b>Daily Occupancy</b> = days a species was detected ÷ total "
+        "sampling days at the given location.<br>"
+        "A detection is counted when BirdNET scores the species at confidence "
+        f"≥ {f.confidence} anywhere in a 10-min recording. One sampling day is "
+        "a distinct calendar date on which any selected plot recorded, and a "
+        "species claims that date if it was heard at any selected plot. Cells "
+        "are shaded 0-100%. <b>NA</b> means the season had no sampling effort "
+        "at the selected plots, while <b>0</b> means the species was not "
+        "detected."
     )
+
+
+def plots_with_effort(data: Dataset, f: Filters) -> set[str]:
+    """
+    Plots that recorded at all under the current time and treatment filters.
+
+    Deliberately ignores the plot and preserve selection, so it answers "what
+    could be chosen" rather than "what is chosen". Narrowing the years to 2022
+    leaves most of the network with nothing to show, and a filter list that
+    offers those plots as though they were live invites a selection that
+    silently returns nothing.
+    """
+    buckets = set(visible_buckets(data, f))
+    sel = data.dates[data.dates["bucket"].isin(buckets)]
+    periods = allowed_periods(f)
+    if periods is not None:
+        sel = sel[sel["period"].isin(periods)]
+    sel = sel[component_mask(sel["period_type"], set(f.treatment_components))]
+    return set(sel["plot"])
+
+
+def preserves_with_effort(data: Dataset, f: Filters) -> set[str]:
+    """The preserves those plots belong to."""
+    live = plots_with_effort(data, f)
+    return set(data.plots[data.plots["plot"].isin(live)]["preserve"])
 
 
 def treatment_summary(data: Dataset, f: Filters) -> list[dict]:
@@ -2234,27 +2334,33 @@ def treatment_summary(data: Dataset, f: Filters) -> list[dict]:
     'patch cut, thinning' later. Reporting a single treatment type for such a
     plot would be wrong, which is exactly what the static labels did.
     """
-    eff = effort_rows(data, f)
-    if eff.empty:
-        return []
+    sel = data.dates[data.dates["plot"].isin(set(f.plots))
+                     & data.dates["bucket"].isin(set(visible_buckets(data, f)))]
+    periods = allowed_periods(f)
+    if periods is not None:
+        sel = sel[sel["period"].isin(periods)]
 
     out = []
     for period in TREATMENT_GROUP_ORDER:
-        sub = eff[eff["period"] == period]
-        if sub.empty:
+        rows = sel[sel["period"] == period]
+        if rows.empty:
             continue
-        types = sorted({t for t in sub["period_type"].dropna().unique()})
-        if len(types) > 3:
-            label = f"{' · '.join(types[:2])} +{len(types) - 2} more"
-        else:
-            label = " · ".join(types) if types else "unknown"
+        types = [t for t in dict.fromkeys(rows["period_type"].dropna())
+                 if str(t).strip()]
+        # Two shown, the rest counted. The full list is carried alongside so
+        # the caller can offer it: a "+6 more" that cannot be opened is just a
+        # statement that information is being withheld.
+        shown = " · ".join(types[:2])
+        if len(types) > 2:
+            shown += f" +{len(types) - 2} more"
         out.append({
             "period": period,
-            "display": PERIOD_DISPLAY.get(period),
-            "ramp": period if period in RAMPS else "accent",
-            "color": ramp_color(period if period in RAMPS else "accent", 0.85),
-            "types": label,
-            "n_plots": int(sub["plot"].nunique()),
+            "color": TREATMENT_GROUP_COLORS.get(period, ACCENT),
+            "display": PERIOD_DISPLAY.get(period, ""),
+            "types": shown or "unknown",
+            "types_full": " · ".join(types) or "unknown",
+            "truncated": len(types) > 2,
+            "all_types": list(types),
         })
     return out
 
@@ -2267,22 +2373,30 @@ def period_colors_in_use(f: Filters) -> bool:
     screen; otherwise it still reports the treatment types, just without a key
     to a colour scheme that isn't being used.
     """
-    return f.compare_by == "treatment_group"
+    return f.graph_type == "occupancy" and f.compare_by == "treatment_group"
 
 
 def panel_copy(data: Dataset, f: Filters) -> tuple[str, str]:
     if f.graph_type == "occupancy":
         if is_rate_mode(f):
-            return ("Detections",
-                    "10-min recordings containing a species, per season")
+            return ("Total Detections",
+                    "Number of 10-min recordings a species was detected in "
+                    "at least once, per season-year.")
+        # One title for both rate modes. 'Daily' read as 'on a particular
+        # day', when every column is a whole season; the Daily/Hourly toggle
+        # is what names the counting unit.
         if f.occ_granularity == "hourly":
-            return ("Hourly Occupancy (%)",
-                    "Share of recorded hours a species was detected")
-        return ("Daily Occupancy (%)",
-                "Share of sampling days a species was detected")
+            return ("Seasonal Occupancy Rate (%)",
+                    "Share of the surveyed hours in each season that a "
+                    "species was detected in, counting a distinct date and "
+                    "clock-hour as one hour.")
+        return ("Seasonal Occupancy Rate (%)",
+                "Share of the surveyed days in each season that a species "
+                "was detected on.")
     if f.graph_type == "hourly":
-        return (f"Occupancy Rate By Hour ({HOUR_FACETS.get(f.hour_facet, '')})",
-                "Plot-days detected ÷ plot-days sampled, at each clock hour")
+        return (f"Occupancy Rate By Hour (%) ({HOUR_FACETS.get(f.hour_facet, '')})",
+                "For each hour of the morning, the share of recorder-days "
+                "on which a species was heard in that hour.")
     if f.graph_type == "region":
         return ("Species Presence By Plot",
                 "Occupancy per species at each recorder")

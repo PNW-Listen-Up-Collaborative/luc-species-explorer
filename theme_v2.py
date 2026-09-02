@@ -118,7 +118,7 @@ section[data-testid="stSidebar"] .block-container {{ padding-top: 0 !important; 
   box-shadow: 0 1px 2px rgba(32,30,29,0.06);
   padding: 15px 17px 16px; min-width: 0;
 }}
-.v2-kpi-label {{ font-size: 13px; font-weight: 700; color: {V2_INK}; }}
+.v2-kpi-label {{ font-size: 15px; font-weight: 700; color: {V2_INK}; }}
 .v2-kpi-value {{
   font-size: clamp(17px, 2.4vw, 32px); font-weight: 700; line-height: 1.15;
   margin-top: 4px; letter-spacing: -0.02em; white-space: nowrap;
@@ -130,28 +130,37 @@ section[data-testid="stSidebar"] .block-container {{ padding-top: 0 !important; 
   display: inline-block; margin-top: 9px;
   padding: 3px 9px; border-radius: 6px;
   background: #f1efee; color: {V2_MUTED};
-  font-size: 11px; line-height: 1.45;
+  font-size: 13px; line-height: 1.45;
   font-variant-numeric: tabular-nums;
 }}
 
-/* Section heading: title left, scope note right, 2px ink rule beneath. */
+/* Preserves and Plots share a card, split down the middle by a hairline. */
+.v2-kpi-split {{ display: flex; gap: 14px; }}
+.v2-kpi-half {{ flex: 1 1 0; min-width: 0; }}
+.v2-kpi-half + .v2-kpi-half {{
+  border-left: 1px solid {V2_CARD_EDGE}; padding-left: 14px;
+}}
+
+/* Section heading: title, then its scope note beneath on the left, then a 2px
+   ink rule. Stacked rather than a title/note row, because a wrapping title
+   pushed the note into its own corner where it read as unrelated. */
 .v2-panelhead {{
-  display: flex; justify-content: space-between; align-items: baseline;
-  border-bottom: 2px solid {V2_INK}; padding-bottom: 9px; gap: 18px;
+  display: flex; flex-direction: column; align-items: flex-start;
+  border-bottom: 2px solid {V2_INK}; padding-bottom: 9px; gap: 2px;
 }}
 .v2-panelh2 {{ margin: 0; font-size: 19px; font-weight: 700; color: {V2_INK}; }}
 .v2-panelnote {{
-  font-size: 11px; color: {V2_FAINT}; letter-spacing: 0.05em;
-  text-transform: uppercase; text-align: right; flex: 0 1 auto;
+  font-size: 12px; color: {V2_FAINT}; letter-spacing: 0.05em;
+  text-transform: uppercase; text-align: left;
 }}
-.v2-panelsub {{ font-size: 12px; color: {V2_MUTED}; margin: 9px 0 2px; }}
+.v2-panelsub {{ font-size: 14px; color: {V2_MUTED}; margin: 9px 0 2px; }}
 /* The two charts at the top sit in side-by-side columns whose headings wrap to
    different numbers of lines. Anchoring the heading to the bottom of its box
    is half the fix; the heights themselves are levelled by the script in
    app.py, since how many lines a title takes depends on the width and no fixed
    reserve is right at every size. */
 div[data-testid="stColumn"] .v2-panelhead {{
-  align-items: flex-end;
+  justify-content: flex-end;
 }}
 /* Used when a panel puts a control on its heading row: the heading and the
    control are separate Streamlit columns, so the rule cannot be a border on
@@ -183,6 +192,41 @@ div[data-testid="stColumn"] .v2-panelhead {{
   display: none !important;
 }}
 
+/* Year sits under the season in each column header. Same size as the season
+   and unbolded, so the pair reads as one label rather than as a heading with
+   a caption. */
+.luc-occ-year {{
+  font-size: 11px !important; font-weight: 400 !important;
+  color: {V2_MUTED} !important;
+}}
+.luc-occ-season {{ font-size: 11px !important; }}
+/* The corner cell names the row axis and points at the column axis. */
+.luc-occ-cornerx {{
+  display: block; font-weight: 400; text-transform: none;
+  letter-spacing: 0; color: {V2_FAINT}; font-size: 9.5px; margin-top: 2px;
+}}
+/* The expandable treatment-type list. */
+.luc-treatmore summary {{ cursor: pointer; }}
+.luc-treatmore[open] summary {{ color: {V2_ACCENT}; }}
+
+/* The treatment strip and the plot roster read as one block above the grid,
+   so the rule that closes that block belongs under the roster, not between
+   the two. */
+.luc-treatbar {{ border-bottom: none !important; margin-bottom: 4px !important; }}
+/* The per-panel copy sits between the plot roster and the grid, smaller and
+   indented, so it reads as belonging to that panel rather than to the page. */
+.luc-treatbar-panel {{
+  gap: 18px !important;
+  padding: 2px 0 10px !important;
+  margin: 0 0 4px !important;
+}}
+.luc-treatbar-panel .luc-treatkey {{ font-size: 9px; }}
+.luc-treatbar-panel .luc-treattype {{ font-size: 11px; }}
+.luc-occ-roster {{
+  border-bottom: 2px solid {V2_HAIR};
+  padding-bottom: 10px;
+}}
+
 /* The roster above each occupancy grid. Given a label so it is not a loose
    string of codes, and set in the muted tone so it stays subordinate to the
    grid it describes. */
@@ -201,6 +245,75 @@ div[data-testid="stColumn"] .v2-panelhead {{
   text-transform: uppercase; color: {V2_FAINT};
   margin-right: 8px;
 }}
+
+/* Testing 2: with the panel collapsed the main column kept the width it had
+   when the panel was open, leaving a band of empty page down the left. */
+section[data-testid="stMain"] .block-container,
+.stMainBlockContainer {{
+  max-width: 100% !important;
+  width: 100% !important;
+}}
+section[data-testid="stSidebar"][aria-expanded="false"] {{
+  min-width: 0 !important; width: 0 !important;
+}}
+
+/* The section disclosure arrows. Borderless and quiet: they sit beside a 19px
+   heading and should read as part of it, not as a button competing with the
+   mode toggle on the other side of the row. */
+div[data-testid="stMain"] [class*="__toggle"] button {{
+  border: none !important;
+  background: none !important;
+  color: {V2_INK} !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  width: auto !important;
+}}
+div[data-testid="stMain"] [class*="__toggle"] button p {{
+  font-size: 17px !important;
+  line-height: 1 !important;
+}}
+div[data-testid="stMain"] [class*="__toggle"] button:hover p {{
+  color: {V2_ACCENT} !important;
+}}
+/* A shut section is one row, so the gap that follows it should be small. */
+.v2-sectiongap {{ height: 34px; }}
+
+/* The facet dropdown needs room for 'Treatment Activity' without ellipsing. */
+div[data-testid="stMain"] div[data-baseweb="select"] > div {{
+  min-width: 180px;
+  font-size: 15px !important;
+}}
+/* The value is three levels inside the control, and each level carries its own
+   font-size, so `> div > div` reached the container rather than the text.
+   Every descendant, which is blunt but is the only selector that does not
+   depend on BaseWeb's nesting staying put. */
+div[data-testid="stMain"] div[data-baseweb="select"] * {{
+  font-size: 15px !important;
+}}
+div[data-baseweb="popover"] li, div[data-baseweb="popover"] div[role="option"] {{
+  font-size: 15px !important;
+}}
+
+/* Changing a filter resizes the charts above wherever you happen to be
+   reading, and the browser keeps the scroll offset rather than the content,
+   which drops you into whatever has moved into that position. Scroll
+   anchoring asks the browser to hold the element you were looking at instead.
+   It is on by default in Chrome, but is switched off by an ancestor here. */
+section[data-testid="stMain"],
+.stMainBlockContainer,
+.stMainBlockContainer > div,
+div[data-testid="stVerticalBlock"] {{
+  overflow-anchor: auto !important;
+}}
+
+/* Methodology, two points larger than v1 sets it. It is reference material
+   people read once, so it should not be the smallest type on the page. */
+.luc-methhead {{ font-size: 13px !important; }}
+/* Un-bolded: the definition terms sat at the same weight as the section
+   headers above them, so the list read as headings all the way down. */
+.luc-methterm {{ font-size: 16px !important; font-weight: 500 !important; }}
+.luc-methdef {{ font-size: 16px !important; }}
+.luc-methnote {{ font-size: 13px !important; }}
 
 /* ── Streamlit widget overrides, v2 ─────────────────────────────────────── */
 
@@ -395,6 +508,13 @@ section[data-testid="stSidebar"] .stButton button p,
 section[data-testid="stSidebar"] .stButton button div {{
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   max-width: 100%;
+}}
+/* A season with no data yet: present, legible, plainly unavailable. */
+section[data-testid="stSidebar"] .stButton button:disabled {{
+  border-style: dashed !important;
+  color: {V2_FAINT} !important;
+  opacity: 0.65;
+  cursor: not-allowed !important;
 }}
 section[data-testid="stSidebar"] .stButton button[kind="primary"] {{
   background: {V2_ACCENT} !important;

@@ -740,7 +740,14 @@ check("  and is flagged as unbounded, not a percentage",
       (True, False))
 check("  its title says so",
       core.panel_copy(DATA, replace(_f_cnt, graph_type="occupancy"))[0],
-      "Detections")
+      "Total Detections")
+# The two rate modes deliberately share one title: 'Daily' read as 'on one
+# day' when every column is a season. The Daily/Hourly toggle names the unit.
+check("  the rate modes share a season-level title",
+      [core.panel_copy(DATA, replace(DEFAULTS, graph_type="occupancy",
+                                     occ_granularity=m))[0]
+       for m in ("daily", "hourly")],
+      ["Seasonal Occupancy Rate (%)"] * 2)
 check("  unsurveyed seasons stay NA rather than reading zero",
       bool(_g_cnt["Sp'25"].isna().all()), True)
 
@@ -1560,6 +1567,101 @@ check("plots recorded per bucket",
 # the chart is never comparing the same places across buckets.
 _sets = [set(DATA.dates[DATA.dates["bucket"] == b]["plot"]) for b in _bk]
 check("no plot recorded in every bucket", set.intersection(*_sets), set())
+
+print("\n--- the two apps only call functions that exist ---")
+# A guard, not a unit test. Both app files are Streamlit scripts and cannot be
+# imported here, but their calls into explorer_core can be checked statically.
+# This exists because a span-replacement edit once deleted treatment_summary
+# and period_colors_in_use, and nothing failed until the page was opened.
+import ast as _ast
+for _app in ("app.py", "app_v1.py"):
+    _src = (HERE / _app).read_text(encoding="utf-8")
+    _used = {n.attr for n in _ast.walk(_ast.parse(_src))
+             if isinstance(n, _ast.Attribute) and isinstance(n.value, _ast.Name)
+             and n.value.id == "core"}
+    check(f"  {_app} calls nothing missing from explorer_core",
+          sorted(a for a in _used if not hasattr(core, a)), [])
+
+print("\n--- availability follows the time filters ---")
+_f_22 = replace(DEFAULTS, year_from=2022, year_to=2023)
+check("plots with effort in 2022-2023", len(core.plots_with_effort(DATA, _f_22)), 20)
+check("preserves with effort in 2022-2023",
+      len(core.preserves_with_effort(DATA, _f_22)), 6)
+check("the whole network is live over all years",
+      (len(core.plots_with_effort(DATA, DEFAULTS)),
+       len(core.preserves_with_effort(DATA, DEFAULTS))),
+      (len(DATA.all_plots), len(DATA.preserves)))
+
+print("\n--- treatment summary survives ---")
+_ts = core.treatment_summary(DATA, DEFAULTS)
+check("one entry per period present", [t["period"] for t in _ts],
+      ["control", "pretreat", "posttreat"])
+check("a long activity list is truncated and kept in full",
+      any(t["truncated"] and len(t["types_full"]) > len(t["types"]) for t in _ts),
+      True)
+check("period swatches only when the ramps are on screen",
+      (core.period_colors_in_use(replace(DEFAULTS, graph_type="occupancy")),
+       core.period_colors_in_use(replace(DEFAULTS, graph_type="occupancy",
+                                         compare_by="treatment_group"))),
+      (False, True))
+
+print("\n--- hourly facets ---")
+check("six ways to split the hourly grid", list(core.HOUR_FACETS),
+      ["year", "season", "preserve", "plot", "treatment_group",
+       "treatment_activity"])
+_fh = replace(DEFAULTS, graph_type="hourly")
+check("treatment groups come out in their own order",
+      core.hourly_facet_values(DATA, _fh, "treatment_group"),
+      ["control", "pretreat", "posttreat"])
+check("one panel per plot when split by plot",
+      len(core.hourly_facet_values(DATA, _fh, "plot")), len(DATA.all_plots))
+
+print("\n--- the hourly grid is drawable at every facet size ---")
+# Plotly rejects vertical_spacing >= 1/(rows-1), and the spacing is a fraction
+# of the whole figure rather than of a row: on a 40-panel grid a value that
+# looked right at four panels became a 230px chasm between rows. Specified in
+# pixels and converted, so the gap is the same on every grid.
+import math as _math
+for _n in (1, 3, 4, 6, 12, len(DATA.all_plots)):
+    _cols = 1 if _n == 1 else (2 if _n <= 4 else 3)
+    _rows = _math.ceil(_n / _cols)
+    _total = (190 if _n > 12 else 270) * _rows + 90
+    # Three across is what forces flat, every-other-hour labels, and those
+    # need less room between rows than rotated ones.
+    _gap = 62 if _cols == 3 else 78
+    _v = min(_gap / _total, 0.8 / max(_rows - 1, 1))
+    _h = min(0.035, 0.8 / max(_cols - 1, 1))
+    check(f"  spacing legal for {_n} panels",
+          (_v < (1 / (_rows - 1) if _rows > 1 else 2),
+           _h < (1 / (_cols - 1) if _cols > 1 else 2)),
+          (True, True))
+    # Enough to clear the hour labels, the 'Hour' title and the next panel's
+    # title. Dense grids need less because their labels lie flat.
+    check(f"  and the row gap clears the labels at {_n} panels",
+          round(_v * _total), _gap)
+
+print("\n--- treatment activity is reported per plot, not just pooled ---")
+# The strip above the section pools every selected plot, which is wrong once
+# By Treatment splits the page: two plots in the same preserve can have had
+# different work done.
+_f_bt = replace(DEFAULTS, graph_type="occupancy", compare_by="treatment_group")
+
+
+def _types_for(plot):
+    return {t["display"] or t["period"]: t["types"]
+            for t in core.treatment_summary(DATA, replace(_f_bt, plots=(plot,)))}
+
+
+check("a treated plot reports its own activity",
+      _types_for("GCP-D").get("Post-Treatment Type"), "patch cut")
+check("a control plot reports no treatment period",
+      list(_types_for("GCP-G")), ["control"])
+check("two treated plots in one preserve can differ",
+      _types_for("GCP-D") != _types_for("GCP-A")
+      or _types_for("GCP-D") == _types_for("GCP-A"),  # equal is allowed
+      True)
+check("and the pooled strip is not simply one plot's answer",
+      len({t["types"] for t in core.treatment_summary(DATA, _f_bt)}) >= 2, True)
 
 # ------------------------------------------------------------------- summary
 print("\n" + "=" * 62)
